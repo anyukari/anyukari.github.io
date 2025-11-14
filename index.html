@@ -2140,75 +2140,112 @@
         `;
         
         progressBar.appendChild(progressFill);
-        progressContainer.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; gap: 10px;"><span class="loading"></span><span id="progress-stage">正在初始化...</span></div>';
+        const stageDiv = document.createElement('div');
+        stageDiv.id = 'progress-stage';
+        stageDiv.style.cssText = 'display: flex; align-items: center; justify-content: center; gap: 10px;';
+        stageDiv.innerHTML = '<span class="loading"></span><span>正在初始化...</span>';
+        progressContainer.appendChild(stageDiv);
         progressContainer.appendChild(progressBar);
         progressContainer.appendChild(progressText);
         resultsContainer.innerHTML = '';
         resultsContainer.appendChild(progressContainer);
+        
+        // 立即显示初始进度
+        progressFill.style.width = '5%';
+        progressText.textContent = '准备开始计算...';
 
         // 进度更新回调函数
         const progressCallback = (stage, message, details) => {
-          const stageText = document.getElementById('progress-stage');
-          const progressFillEl = document.getElementById('progress-fill');
-          const progressTextEl = document.getElementById('progress-text');
-          
-          if (stageText) {
-            stageText.textContent = message;
-          }
-          
-          if (progressFillEl && details.progress !== undefined) {
-            progressFillEl.style.width = details.progress + '%';
-          }
-          
-          if (progressTextEl) {
-            let text = '';
-            if (details.solutionsFound !== undefined) {
-              text += `已找到 ${details.solutionsFound} 个方案`;
-              if (details.perfectSolutions !== undefined && details.perfectSolutions > 0) {
-                text += ` (${details.perfectSolutions} 个完美解)`;
+          // 使用requestAnimationFrame确保UI更新
+          requestAnimationFrame(() => {
+            const stageDiv = document.getElementById('progress-stage');
+            const progressFillEl = document.getElementById('progress-fill');
+            const progressTextEl = document.getElementById('progress-text');
+            
+            if (stageDiv) {
+              const span = stageDiv.querySelector('span:last-child');
+              if (span) {
+                span.textContent = message;
+              } else {
+                stageDiv.innerHTML = `<span class="loading"></span><span>${message}</span>`;
               }
             }
-            if (details.elapsed !== undefined) {
-              text += ` | 耗时: ${(details.elapsed / 1000).toFixed(1)}秒`;
+            
+            if (progressFillEl && details.progress !== undefined) {
+              progressFillEl.style.width = Math.max(5, details.progress) + '%';
             }
-            if (details.totalTime !== undefined) {
-              text = `总耗时: ${(details.totalTime / 1000).toFixed(1)}秒 | 找到 ${details.solutionsFound || 0} 个方案`;
+            
+            if (progressTextEl) {
+              let text = '';
+              if (details.solutionsFound !== undefined) {
+                text += `已找到 ${details.solutionsFound} 个方案`;
+                if (details.perfectSolutions !== undefined && details.perfectSolutions > 0) {
+                  text += ` (${details.perfectSolutions} 个完美解)`;
+                }
+              }
+              if (details.elapsed !== undefined) {
+                if (text) text += ' | ';
+                text += `耗时: ${(details.elapsed / 1000).toFixed(1)}秒`;
+              }
+              if (details.totalTime !== undefined) {
+                text = `总耗时: ${(details.totalTime / 1000).toFixed(1)}秒 | 找到 ${details.solutionsFound || 0} 个方案`;
+              }
+              if (text) {
+                progressTextEl.textContent = text;
+              }
             }
-            progressTextEl.textContent = text;
-          }
+          });
         };
 
-        // 为多个需求寻找最佳匹配方案
-        const solutions = findMultiDemandSolution(
-          selectedDemands,
-          selectedRoles,
-          progressCallback
-        );
-
-        // 移除进度容器
-        const progressContainerEl = document.getElementById('progress-container');
-        if (progressContainerEl) {
-          progressContainerEl.remove();
-        }
-        
-        resultsContainer.innerHTML = "";
-
-        if (solutions.length === 0) {
-          resultsContainer.innerHTML =
-            '<div class="no-solution">无法找到满足所有需求的角色组合方案</div>';
-          return;
-        }
-
-        // 计算最优方案数量（完全满足的方案）
-        const perfectSolutionsCount = solutions.filter(solution => {
-          return solution.demandScores.every(
-            (score) =>
-              score.satisfied.length === selectedDemands[0].特性需求.length
+        // 为多个需求寻找最佳匹配方案（使用setTimeout确保UI有时间更新）
+        let solutions = [];
+        setTimeout(() => {
+          // 立即更新进度，显示开始计算
+          progressCallback('start', '开始计算匹配方案...', { progress: 10 });
+          
+          solutions = findMultiDemandSolution(
+            selectedDemands,
+            selectedRoles,
+            progressCallback
           );
-        }).length;
 
-        // 显示最佳方案
-        solutions.forEach((solution, solutionIndex) => {
+          // 移除进度容器
+          const progressContainerEl = document.getElementById('progress-container');
+          if (progressContainerEl) {
+            progressContainerEl.remove();
+          }
+          
+          resultsContainer.innerHTML = "";
+
+          if (solutions.length === 0) {
+            resultsContainer.innerHTML =
+              '<div class="no-solution">无法找到满足所有需求的角色组合方案</div>';
+            showMessage('未找到匹配方案', 'warning');
+            return;
+          }
+
+          // 显示匹配完成提示
+          const perfectCount = solutions.filter(solution => {
+            return solution.demandScores.every(
+              (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
+            );
+          }).length;
+          
+          if (perfectCount > 0) {
+            showMessage(`匹配完成！找到 ${solutions.length} 个方案，其中 ${perfectCount} 个完美解`, 'success');
+          } else {
+            showMessage(`匹配完成！找到 ${solutions.length} 个方案`, 'success');
+          }
+
+          // 计算最优方案数量（完全满足的方案）
+          const perfectSolutionsCount = solutions.filter(solution => {
+            return solution.demandScores.every(
+              (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
+            );
+          }).length;
+
+          // 显示最佳方案
+          solutions.forEach((solution, solutionIndex) => {
           const solutionDiv = document.createElement("div");
           solutionDiv.className = "total-solution";
 
@@ -2330,7 +2367,8 @@
           solutionDiv.innerHTML = solutionHTML;
           solutionDiv.setAttribute('data-solution-index', solutionIndex);
           resultsContainer.appendChild(solutionDiv);
-        });
+          });
+        }, 50); // 给UI一点时间更新
       }
 
       // 切换方案详情显示
