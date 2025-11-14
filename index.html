@@ -42,6 +42,18 @@
         z-index: 0;
       }
 
+      /* 移动端不显示背景图片 */
+      @media (max-width: 768px) {
+        body {
+          background-image: none !important;
+          background-color: #1a202c;
+        }
+        
+        body::before {
+          background: rgba(0, 0, 0, 0.2);
+        }
+      }
+
       .container {
         max-width: 1400px;
         margin: 0 auto;
@@ -2373,8 +2385,20 @@
 
       // 切换方案详情显示
 
+      // 检测是否为移动设备
+      function isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+          || window.innerWidth <= 768;
+      }
+
       // 设置背景图片
       function setBackgroundImage() {
+        // 移动端不加载背景图片
+        if (isMobileDevice()) {
+          console.log('移动设备，跳过背景图片加载');
+          return;
+        }
+        
         // 尝试多种可能的文件名格式
         const possibleNames = [
           'img/4028_B #1616580.png',
