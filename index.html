@@ -1593,8 +1593,19 @@
         };
       }
 
+      // 进度更新函数
+      let progressUpdateCallback = null;
+      function setProgressCallback(callback) {
+        progressUpdateCallback = callback;
+      }
+      function updateProgress(stage, message, details = {}) {
+        if (progressUpdateCallback) {
+          progressUpdateCallback(stage, message, details);
+        }
+      }
+
       // 改进的全局特性平衡优化算法
-      function findMultiDemandSolution(selectedDemands, availableRoles) {
+      function findMultiDemandSolution(selectedDemands, availableRoles, progressCallback) {
         const totalRolesNeeded = selectedDemands.reduce(
           (sum, demand) => sum + demand.职业需求.length,
           0
@@ -1611,12 +1622,21 @@
         // 性能优化：根据需求数量设置搜索限制
         const maxSolutions = selectedDemands.length <= 2 ? 100 : 50;
         const maxTimeMs = selectedDemands.length <= 2 ? 5000 : 3000;
+        // 如果找到足够多的完美解，可以提前终止
+        const perfectSolutionThreshold = 3;
 
         const solutions = [];
         let solutionCount = 0;
         let startTime = Date.now();
+        let lastProgressUpdate = 0;
+        
+        // 设置进度回调
+        if (progressCallback) {
+          setProgressCallback(progressCallback);
+        }
 
         // 预处理：计算每个角色对每个需求的特性匹配度
+        updateProgress('preprocessing', '正在预处理角色匹配度...', { progress: 0 });
         const roleDemandScores = {};
         selectedDemands.forEach((demand, demandIndex) => {
           roleDemandScores[demandIndex] = {};
@@ -1626,7 +1646,11 @@
             );
             roleDemandScores[demandIndex][role.index] = matchedTraits.length;
           });
+          updateProgress('preprocessing', '正在预处理角色匹配度...', { 
+            progress: Math.round((demandIndex + 1) / selectedDemands.length * 100) 
+          });
         });
+        updateProgress('greedy', '正在执行贪心算法...', { progress: 0 });
 
         // 贪心预分配：为每个需求找到最佳角色
         function greedyPreassign() {
@@ -1670,11 +1694,20 @@
         function optimizeTraitExchange(solution) {
           let improved = true;
           let iterations = 0;
-          const maxIterations = 20;
+          // 优化：根据需求数量调整最大迭代次数
+          const maxIterations = selectedDemands.length <= 2 ? 15 : 10;
 
           while (improved && iterations < maxIterations) {
             improved = false;
             iterations++;
+            
+            // 如果已经找到完美解，提前终止
+            const isPerfect = solution.demandScores.every(
+              (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
+            );
+            if (isPerfect) {
+              break;
+            }
 
             // 计算当前每个需求的未满足特性
             const unmetTraits = [];
@@ -1769,6 +1802,19 @@
           usedRoles,
           improvedScore
         ) {
+          // 定期更新进度（每200ms更新一次，避免过于频繁）
+          const now = Date.now();
+          if (now - lastProgressUpdate > 200) {
+            const elapsed = now - startTime;
+            const progress = Math.min(95, Math.round((elapsed / maxTimeMs) * 90));
+            updateProgress('backtracking', '正在搜索更优方案...', { 
+              progress: progress,
+              solutionsFound: solutionCount,
+              elapsed: elapsed
+            });
+            lastProgressUpdate = now;
+          }
+
           // 检查是否达到限制
           if (
             Date.now() - startTime > maxTimeMs ||
@@ -1804,6 +1850,26 @@
             if (optimizedSolution.totalTraitScore > improvedScore) {
               solutions.push(optimizedSolution);
               solutionCount++;
+              
+              // 检查是否为完美解
+              const isPerfect = optimizedSolution.demandScores.every(
+                (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
+              );
+              
+              // 如果找到足够多的完美解，可以考虑提前终止（但继续搜索一小段时间以确保质量）
+              const perfectCount = solutions.filter(sol => 
+                sol.demandScores.every(
+                  (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
+                )
+              ).length;
+              
+              // 找到新方案时立即更新进度
+              updateProgress('backtracking', '正在搜索更优方案...', { 
+                progress: Math.min(95, Math.round(((Date.now() - startTime) / maxTimeMs) * 90)),
+                solutionsFound: solutionCount,
+                perfectSolutions: perfectCount,
+                elapsed: Date.now() - startTime
+              });
             }
             return;
           }
@@ -1845,11 +1911,16 @@
             candidates.sort((a, b) => {
               const aScore = roleDemandScores[demandIndex][a.index] || 0;
               const bScore = roleDemandScores[demandIndex][b.index] || 0;
+              // 如果分数相同，优先选择索引小的（更早的角色）
+              if (bScore === aScore) {
+                return a.index - b.index;
+              }
               return bScore - aScore;
             });
 
-            // 限制尝试次数
-            const maxCandidates = Math.min(candidates.length, 3);
+            // 优化：限制尝试次数，优先尝试特性匹配度高的角色
+            // 如果候选角色很多，只尝试前几个最佳匹配的
+            const maxCandidates = Math.min(candidates.length, selectedDemands.length <= 2 ? 4 : 3);
 
             for (let i = 0; i < maxCandidates; i++) {
               const candidate = candidates[i];
@@ -1878,6 +1949,7 @@
 
         // 1. 先执行贪心算法获得基础解
         const greedyResult = greedyPreassign();
+        updateProgress('greedy', '贪心算法完成，正在计算分数...', { progress: 100 });
 
         // 2. 计算贪心解的特性匹配分数
         let greedyScore = 0;
@@ -1912,11 +1984,16 @@
         }
 
         // 对贪心解应用特性交换优化
+        updateProgress('optimizing', '正在优化贪心解...', { progress: 0 });
         const optimizedGreedySolution = optimizeTraitExchange(greedySolution);
         solutions.push(optimizedGreedySolution);
         solutionCount++;
+        updateProgress('backtracking', '正在搜索更优方案...', { 
+          progress: 0, 
+          solutionsFound: solutionCount 
+        });
 
-        // 4. 在贪心解基础上进行回溯优化
+        // 4. 在贪心解基础上进行回溯优化（异步执行）
         backtrack(
           0,
           Array(selectedDemands.length)
@@ -1926,6 +2003,8 @@
           optimizedGreedySolution.totalTraitScore
         );
 
+        updateProgress('sorting', '正在整理结果...', { progress: 95 });
+        
         console.log(
           `找到 ${solutions.length} 个可能的方案，搜索时间：${
             Date.now() - startTime
@@ -1968,6 +2047,12 @@
         }
 
         console.log(`去重后剩余 ${uniqueSolutions.length} 个唯一方案`);
+
+        updateProgress('complete', '计算完成！', { 
+          progress: 100,
+          solutionsFound: uniqueSolutions.length,
+          totalTime: Date.now() - startTime
+        });
 
         // 返回前5个最佳方案
         return uniqueSolutions.slice(0, 5);
@@ -2012,16 +2097,100 @@
           return;
         }
 
-        // 显示搜索状态
-        resultsContainer.innerHTML =
-          '<div style="color: #667eea; margin-bottom: 20px; text-align: center; padding: 20px; font-size: 1.1em;"><span class="loading"></span> 正在搜索最佳匹配方案...</div>';
+        // 创建进度显示UI
+        const progressContainer = document.createElement('div');
+        progressContainer.id = 'progress-container';
+        progressContainer.style.cssText = `
+          color: #667eea;
+          margin-bottom: 20px;
+          text-align: center;
+          padding: 20px;
+          font-size: 1.1em;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        `;
+        
+        const progressBar = document.createElement('div');
+        progressBar.style.cssText = `
+          width: 100%;
+          height: 8px;
+          background: #e2e8f0;
+          border-radius: 4px;
+          overflow: hidden;
+          margin: 15px 0;
+        `;
+        
+        const progressFill = document.createElement('div');
+        progressFill.id = 'progress-fill';
+        progressFill.style.cssText = `
+          height: 100%;
+          width: 0%;
+          background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+          border-radius: 4px;
+          transition: width 0.3s ease;
+        `;
+        
+        const progressText = document.createElement('div');
+        progressText.id = 'progress-text';
+        progressText.style.cssText = `
+          margin-top: 10px;
+          font-size: 0.9em;
+          color: #4a5568;
+        `;
+        
+        progressBar.appendChild(progressFill);
+        progressContainer.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; gap: 10px;"><span class="loading"></span><span id="progress-stage">正在初始化...</span></div>';
+        progressContainer.appendChild(progressBar);
+        progressContainer.appendChild(progressText);
+        resultsContainer.innerHTML = '';
+        resultsContainer.appendChild(progressContainer);
+
+        // 进度更新回调函数
+        const progressCallback = (stage, message, details) => {
+          const stageText = document.getElementById('progress-stage');
+          const progressFillEl = document.getElementById('progress-fill');
+          const progressTextEl = document.getElementById('progress-text');
+          
+          if (stageText) {
+            stageText.textContent = message;
+          }
+          
+          if (progressFillEl && details.progress !== undefined) {
+            progressFillEl.style.width = details.progress + '%';
+          }
+          
+          if (progressTextEl) {
+            let text = '';
+            if (details.solutionsFound !== undefined) {
+              text += `已找到 ${details.solutionsFound} 个方案`;
+              if (details.perfectSolutions !== undefined && details.perfectSolutions > 0) {
+                text += ` (${details.perfectSolutions} 个完美解)`;
+              }
+            }
+            if (details.elapsed !== undefined) {
+              text += ` | 耗时: ${(details.elapsed / 1000).toFixed(1)}秒`;
+            }
+            if (details.totalTime !== undefined) {
+              text = `总耗时: ${(details.totalTime / 1000).toFixed(1)}秒 | 找到 ${details.solutionsFound || 0} 个方案`;
+            }
+            progressTextEl.textContent = text;
+          }
+        };
 
         // 为多个需求寻找最佳匹配方案
         const solutions = findMultiDemandSolution(
           selectedDemands,
-          selectedRoles
+          selectedRoles,
+          progressCallback
         );
 
+        // 移除进度容器
+        const progressContainerEl = document.getElementById('progress-container');
+        if (progressContainerEl) {
+          progressContainerEl.remove();
+        }
+        
         resultsContainer.innerHTML = "";
 
         if (solutions.length === 0) {
