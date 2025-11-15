@@ -123,7 +123,7 @@
 
       .section:hover {
         transform: translateY(-3px);
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(248, 250, 252, 0.85) 100%);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.85) 100%);
         box-shadow: 
           0 12px 32px rgba(0, 0, 0, 0.2),
           0 0 0 1px rgba(102, 126, 234, 0.2) inset;
@@ -224,15 +224,18 @@
 
       .checkbox-item.selected::before {
         background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
-        box-shadow: 0 0 8px rgba(102, 126, 234, 0.5);
+        box-shadow: 0 0 12px rgba(102, 126, 234, 0.6);
+        width: 5px;
       }
 
       .checkbox-item.selected {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.05) 100%);
-        border-color: rgba(102, 126, 234, 0.3);
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.1) 100%);
+        border-color: rgba(102, 126, 234, 0.5);
+        border-width: 2.5px;
         box-shadow: 
-          0 4px 12px rgba(102, 126, 234, 0.15),
-          0 0 0 2px rgba(102, 126, 234, 0.2);
+          0 6px 16px rgba(102, 126, 234, 0.25),
+          0 0 0 3px rgba(102, 126, 234, 0.15),
+          inset 0 1px 0 rgba(255, 255, 255, 0.2);
       }
 
       .checkbox-item:hover {
@@ -245,7 +248,13 @@
       }
 
       .checkbox-item.selected:hover {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(118, 75, 162, 0.08) 100%);
+        transform: translateY(-2px);
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.15) 100%);
+        border-color: rgba(102, 126, 234, 0.6);
+        box-shadow: 
+          0 8px 20px rgba(102, 126, 234, 0.3),
+          0 0 0 3px rgba(102, 126, 234, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.25);
       }
 
       .role-check-indicator {
@@ -301,7 +310,22 @@
         border: 2px solid rgba(102, 126, 234, 0.2);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         flex-shrink: 0;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+        background: linear-gradient(135deg, rgba(240, 242, 247, 0.8) 0%, rgba(226, 232, 240, 0.8) 100%);
+        transition: opacity 0.3s ease;
+      }
+
+      /* 图片懒加载占位符 */
+      img[loading="lazy"] {
+        background: linear-gradient(135deg, rgba(240, 242, 247, 0.8) 0%, rgba(226, 232, 240, 0.8) 100%);
+        transition: opacity 0.3s ease;
+      }
+
+      img[loading="lazy"]:not(.loaded) {
+        opacity: 0.6;
+      }
+
+      img[loading="lazy"].loaded {
+        opacity: 1;
       }
 
 
@@ -961,6 +985,58 @@
           transform: translateX(-50%) translateY(-20px);
         }
       }
+
+      /* 返回顶部按钮样式 */
+      .back-to-top {
+        position: fixed;
+        bottom: 40px;
+        right: 40px;
+        width: 50px;
+        height: 50px;
+        background: rgba(255, 255, 255, 0.85);
+        color: #2d3748;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 20px;
+        font-weight: 600;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        z-index: 1000;
+        opacity: 0;
+        transform: translateY(20px);
+        touch-action: manipulation;
+      }
+
+      .back-to-top.show {
+        display: flex;
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .back-to-top:hover {
+        transform: translateY(-3px);
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        color: #1a202c;
+      }
+
+      .back-to-top:active {
+        transform: translateY(-1px);
+      }
+
+      @media (max-width: 768px) {
+        .back-to-top {
+          bottom: 30px;
+          right: 30px;
+          width: 46px;
+          height: 46px;
+          font-size: 18px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -1003,7 +1079,55 @@
       </div>
     </div>
 
+    <!-- 返回顶部按钮 -->
+    <button class="back-to-top" id="backToTop" aria-label="返回顶部">↑</button>
+
     <script>
+      // 图片加载优化配置
+      // 如果使用GitHub Pages，可以启用CDN加速（需要将图片路径改为CDN地址）
+      const IMG_CONFIG = {
+        // 是否使用CDN加速（需要配置CDN地址）
+        // 仓库名就是GitHub上的Repository name
+        useCDN: true,
+        // CDN基础URL（使用jsDelivr CDN）
+        // 格式：https://cdn.jsdelivr.net/gh/用户名/仓库名@分支名/
+        // 如果您的分支是master而不是main，请将@main改为@master
+        cdnBase: 'https://cdn.jsdelivr.net/gh/anyukari/anyukari.github.io@main/',
+        // 图片基础路径
+        basePath: 'img/'
+      };
+
+      // 获取图片URL（支持CDN）
+      function getImageUrl(path) {
+        if (IMG_CONFIG.useCDN && IMG_CONFIG.cdnBase) {
+          return IMG_CONFIG.cdnBase + path;
+        }
+        return path;
+      }
+
+      // 图片预加载优化（延迟加载非关键图片）
+      function preloadImage(src, callback) {
+        const img = new Image();
+        img.onload = () => {
+          if (callback) callback(img);
+        };
+        img.onerror = () => {
+          if (callback) callback(null);
+        };
+        img.src = src;
+      }
+
+      // 批量预加载图片（延迟执行，不阻塞页面渲染）
+      function batchPreloadImages(urls, delay = 1000) {
+        setTimeout(() => {
+          urls.forEach((url, index) => {
+            setTimeout(() => {
+              preloadImage(url);
+            }, index * 100); // 每100ms加载一张，避免同时请求过多
+          });
+        }, delay);
+      }
+
       // 角色数据 - 优化数据结构
       const roles = [
         // 水属性
@@ -1197,11 +1321,11 @@
         }
         
         const possibleNames = [
-          `img/${roleName}.jpg`,
-          `img/${roleName}.jpeg`,
-          `img/${roleName}_avatar.png`,
-          `img/${roleName}_头像.png`,
-          `img/${roleName}_头像.jpg`
+          getImageUrl(`img/${roleName}.png`),
+          getImageUrl(`img/${roleName}.jpg`),
+          getImageUrl(`img/${roleName}.jpeg`),
+          getImageUrl(`img/${roleName}_avatar.png`),
+          getImageUrl(`img/${roleName}_头像.png`)
         ];
         
         let index = 0;
@@ -1316,18 +1440,18 @@
         
         // 属性图片URL映射（使用img文件夹）
         const attributeImages = {
-          "水": "img/水.png",
-          "火": "img/火.png",
-          "地": "img/地.png",
-          "风": "img/风.png",
-          "光": "img/光.png",
-          "暗": "img/暗.png"
+          "水": getImageUrl("img/水.png"),
+          "火": getImageUrl("img/火.png"),
+          "地": getImageUrl("img/地.png"),
+          "风": getImageUrl("img/风.png"),
+          "光": getImageUrl("img/光.png"),
+          "暗": getImageUrl("img/暗.png")
         };
         
         // 星级图片URL映射（使用img文件夹）
         const starImages = {
-          "四星": "img/四星.png",
-          "五星": "img/五星.png"
+          "四星": getImageUrl("img/四星.png"),
+          "五星": getImageUrl("img/五星.png")
         };
         
         // 按属性分组显示
@@ -1343,7 +1467,7 @@
           const attrImg = attributeImages[attribute] || '';
           if (attrImg) {
             attributeTitle.innerHTML = `<span style="display: inline-flex; align-items: center; vertical-align: middle;">
-              <img src="${attrImg}" alt="${attribute}" style="width: 24px; height: 24px; object-fit: contain; vertical-align: middle;">
+              <img src="${attrImg}" alt="${attribute}" loading="lazy" style="width: 24px; height: 24px; object-fit: contain; vertical-align: middle;" onload="this.classList.add('loaded')">
             </span>
             <span>${attribute}</span>`;
           } else {
@@ -1369,11 +1493,11 @@
             const starImg = starImages[role.星级] || '';
             // 尝试多种可能的头像文件名格式
             const roleAvatarNames = [
-              `img/${role.名称}.png`,
-              `img/${role.名称}.jpg`,
-              `img/${role.名称}.jpeg`,
-              `img/${role.名称}_avatar.png`,
-              `img/${role.名称}_头像.png`
+              getImageUrl(`img/${role.名称}.png`),
+              getImageUrl(`img/${role.名称}.jpg`),
+              getImageUrl(`img/${role.名称}.jpeg`),
+              getImageUrl(`img/${role.名称}_avatar.png`),
+              getImageUrl(`img/${role.名称}_头像.png`)
             ];
             const roleAvatar = roleAvatarNames[0]; // 默认使用第一个
             checkboxItem.setAttribute('data-role-index', globalIndex);
@@ -1383,14 +1507,14 @@
                         <label>${role.名称}</label>
                         <span class="role-info">
                           <div style="display: flex; align-items: flex-start; gap: 10px; margin-top: 4px;">
-                            <img src="${roleAvatar}" alt="${role.名称}" class="role-avatar" data-role-name="${role.名称}" onerror="handleAvatarError(this);">
+                            <img src="${roleAvatar}" alt="${role.名称}" class="role-avatar" data-role-name="${role.名称}" loading="lazy" onload="this.classList.add('loaded')" onerror="handleAvatarError(this);">
                             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0;">
                               <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; white-space: nowrap; overflow-x: auto;">
                                 ${attrImg ? `<span style="display: inline-flex; align-items: center; vertical-align: middle; flex-shrink: 0;">
-                                  <img src="${attrImg}" alt="${role.属性}" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle;">
+                                  <img src="${attrImg}" alt="${role.属性}" loading="lazy" style="width: 20px; height: 20px; object-fit: contain; vertical-align: middle;" onload="this.classList.add('loaded')">
                                 </span>` : `<span style="color: ${attrColor}; font-weight: 600; flex-shrink: 0;">${role.属性}</span>`}
                                 ${starImg ? `<span style="display: inline-flex; align-items: center; vertical-align: middle; flex-shrink: 0;">
-                                  <img src="${starImg}" alt="${role.星级}" style="height: 16px; object-fit: contain; vertical-align: middle;">
+                                  <img src="${starImg}" alt="${role.星级}" loading="lazy" style="height: 16px; object-fit: contain; vertical-align: middle;" onload="this.classList.add('loaded')">
                                 </span>` : `<span style="color: #fbbf24; font-weight: 600; flex-shrink: 0;">${role.星级}</span>`}
                                 <span style="color: #667eea; font-weight: 600; flex-shrink: 0;">${role.职业}</span>
                               </div>
@@ -1448,7 +1572,7 @@
         categories.forEach((category, categoryIndex) => {
           // 创建类别标题
           const categoryTitle = document.createElement("div");
-          categoryTitle.style.cssText = "font-size: 1.4em; font-weight: 700; color: #667eea; margin: 28px 0 18px 0; padding: 14px 0 14px 18px; border-left: 6px solid #667eea; background: linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(102, 126, 234, 0.05) 50%, rgba(255, 255, 255, 0) 100%); border-radius: 12px; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);";
+          categoryTitle.style.cssText = "font-size: 1.4em; font-weight: 700; color: #059669; margin: 28px 0 18px 0; padding: 14px 0 14px 18px; border-left: 6px solid #059669; background: linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(5, 150, 105, 0.04) 50%, rgba(255, 255, 255, 0) 100%); border-radius: 12px; box-shadow: 0 2px 8px rgba(5, 150, 105, 0.1);";
           categoryTitle.textContent = `${category}`;
           demandsContainer.appendChild(categoryTitle);
           
@@ -2078,17 +2202,17 @@
 
         // 属性图片和星级图片映射（用于详情显示）
         const attributeImages = {
-          "水": "img/水.png",
-          "火": "img/火.png",
-          "地": "img/地.png",
-          "风": "img/风.png",
-          "光": "img/光.png",
-          "暗": "img/暗.png"
+          "水": getImageUrl("img/水.png"),
+          "火": getImageUrl("img/火.png"),
+          "地": getImageUrl("img/地.png"),
+          "风": getImageUrl("img/风.png"),
+          "光": getImageUrl("img/光.png"),
+          "暗": getImageUrl("img/暗.png")
         };
         
         const starImages = {
-          "四星": "img/四星.png",
-          "五星": "img/五星.png"
+          "四星": getImageUrl("img/四星.png"),
+          "五星": getImageUrl("img/五星.png")
         };
 
         resultsContainer.innerHTML = "";
@@ -2306,14 +2430,14 @@
             if (Array.isArray(assignedRoles)) {
               assignedRoles.forEach((role) => {
                 const roleAvatarNames = [
-                  `img/${role.名称}.png`,
-                  `img/${role.名称}.jpg`,
-                  `img/${role.名称}.jpeg`,
-                  `img/${role.名称}_avatar.png`,
-                  `img/${role.名称}_头像.png`
+                  getImageUrl(`img/${role.名称}.png`),
+                  getImageUrl(`img/${role.名称}.jpg`),
+                  getImageUrl(`img/${role.名称}.jpeg`),
+                  getImageUrl(`img/${role.名称}_avatar.png`),
+                  getImageUrl(`img/${role.名称}_头像.png`)
                 ];
                 const roleAvatar = roleAvatarNames[0];
-                roleImagesHTML += `<img src="${roleAvatar}" alt="${role.名称}" class="result-role-avatar" data-role-name="${role.名称}" onerror="handleAvatarError(this);">`;
+                roleImagesHTML += `<img src="${roleAvatar}" alt="${role.名称}" class="result-role-avatar" data-role-name="${role.名称}" loading="lazy" onload="this.classList.add('loaded')" onerror="handleAvatarError(this);">`;
               });
             }
 
@@ -2380,6 +2504,9 @@
           solutionDiv.setAttribute('data-solution-index', solutionIndex);
           resultsContainer.appendChild(solutionDiv);
           });
+          
+          // 结果生成完成后，更新返回顶部按钮状态
+          updateBackToTopButton();
         }, 50); // 给UI一点时间更新
       }
 
@@ -2401,12 +2528,12 @@
         
         // 尝试多种可能的文件名格式
         const possibleNames = [
-          'img/4028_B #1616580.png',
-          'img/4028_B%20%231616580.png',
-          'img/4028_B_1616580.png',
-          'img/4028_B.png',
-          './img/4028_B #1616580.png',
-          'img\\4028_B #1616580.png'
+          getImageUrl('img/4028_B #1616580.png'),
+          getImageUrl('img/4028_B%20%231616580.png'),
+          getImageUrl('img/4028_B_1616580.png'),
+          getImageUrl('img/4028_B.png'),
+          getImageUrl('./img/4028_B #1616580.png'),
+          getImageUrl('img/4028_B #1616580.png').replace(/\//g, '\\')
         ];
         
         let index = 0;
@@ -2440,11 +2567,11 @@
         if (!roleIcon) return;
         
         const possibleNames = [
-          'img/btn_icon_system_Gacha #2000653.png',
-          'img/btn_icon_system_Gacha%20%232000653.png',
-          'img/btn_icon_system_Gacha_2000653.png',
-          'img/btn_icon_system_Gacha.png',
-          './img/btn_icon_system_Gacha #2000653.png'
+          getImageUrl('img/btn_icon_system_Gacha #2000653.png'),
+          getImageUrl('img/btn_icon_system_Gacha%20%232000653.png'),
+          getImageUrl('img/btn_icon_system_Gacha_2000653.png'),
+          getImageUrl('img/btn_icon_system_Gacha.png'),
+          getImageUrl('./img/btn_icon_system_Gacha #2000653.png')
         ];
         
         let index = 0;
@@ -2467,11 +2594,93 @@
         tryNext();
       }
 
+      // 返回顶部功能
+      let backToTopHandleScroll = null;
+      
+      function initBackToTop() {
+        const backToTopBtn = document.getElementById('backToTop');
+        const resultsContainer = document.getElementById('results-container');
+        
+        if (!backToTopBtn) return;
+        
+        // 获取匹配结果区域的起始位置
+        function getResultsSectionTop() {
+          if (resultsContainer) {
+            // 找到包含results-container的section元素
+            let parent = resultsContainer.parentElement;
+            while (parent && !parent.classList.contains('section')) {
+              parent = parent.parentElement;
+            }
+            if (parent) {
+              return parent.getBoundingClientRect().top + window.pageYOffset;
+            }
+            // 如果找不到section，直接使用results-container的位置
+            return resultsContainer.getBoundingClientRect().top + window.pageYOffset;
+          }
+          // 如果没有找到结果区域，使用匹配按钮的位置
+          const matchButton = document.querySelector('button[onclick="matchDemands()"]');
+          if (matchButton) {
+            return matchButton.getBoundingClientRect().bottom + window.pageYOffset;
+          }
+          return window.innerHeight;
+        }
+        
+        // 滚动事件监听
+        function handleScroll() {
+          const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+          const resultsSectionTop = getResultsSectionTop();
+          
+          // 当滚动到匹配结果区域时显示按钮（滚动到结果区域顶部时就开始显示）
+          if (scrollY >= resultsSectionTop - 100) {
+            backToTopBtn.classList.add('show');
+          } else {
+            backToTopBtn.classList.remove('show');
+          }
+        }
+        
+        // 保存handleScroll函数供外部调用
+        backToTopHandleScroll = handleScroll;
+        
+        // 点击按钮返回顶部
+        backToTopBtn.addEventListener('click', function() {
+          window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+          });
+        });
+        
+        // 监听滚动事件（使用节流优化性能）
+        let ticking = false;
+        window.addEventListener('scroll', function() {
+          if (!ticking) {
+            window.requestAnimationFrame(function() {
+              handleScroll();
+              ticking = false;
+            });
+            ticking = true;
+          }
+        });
+        
+        // 初始检查
+        handleScroll();
+      }
+      
+      // 更新返回顶部按钮状态（在结果生成后调用）
+      function updateBackToTopButton() {
+        if (backToTopHandleScroll) {
+          // 延迟一点时间确保DOM已更新
+          setTimeout(function() {
+            backToTopHandleScroll();
+          }, 100);
+        }
+      }
+
       // 页面加载完成后初始化
       window.onload = function() {
         setBackgroundImage();
         setRoleIcon();
         initializePage();
+        initBackToTop();
       };
     </script>
   </body>
