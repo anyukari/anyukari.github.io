@@ -18,7 +18,7 @@
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
         margin: 0;
         padding: 20px;
-        background-image: url('img/4028_B #1616580.png');
+        background-image: url('img/4028_B #1616580.jpeg');
         background-position: center center;
         background-size: cover;
         background-repeat: no-repeat;
@@ -1084,25 +1084,50 @@
 
     <script>
       // 图片加载优化配置
-      // 如果使用GitHub Pages，可以启用CDN加速（需要将图片路径改为CDN地址）
       const IMG_CONFIG = {
-        // 是否使用CDN加速（需要配置CDN地址）
-        // 仓库名就是GitHub上的Repository name
-        useCDN: true,
-        // CDN基础URL（使用jsDelivr CDN）
-        // 格式：https://cdn.jsdelivr.net/gh/用户名/仓库名@分支名/
-        // 如果您的分支是master而不是main，请将@main改为@master
+        // 加速方式选择：
+        // 'cdn' - 使用jsDelivr CDN（GitHub用户推荐，已配置好）
+        // 'imageBed' - 使用国内图床（需要注册七牛云等图床服务）
+        // 'local' - 使用本地路径（默认，直接从GitHub加载，可能较慢）
+        mode: 'cdn',  // 已为您启用CDN加速
+        
+        // CDN配置（jsDelivr）
         cdnBase: 'https://cdn.jsdelivr.net/gh/anyukari/anyukari.github.io@main/',
+        
+        // 图床配置（需要域名，如果没有域名建议使用上面的CDN模式）
+        // 方案A：七牛云（需要域名，测试域名只能用30天）
+        // 方案B：免费图床（无需域名，但速度可能一般）
+        //   - SM.MS: https://sm.ms/ （免费，无需注册）
+        //   - 上传后获取图片链接，格式：https://s2.loli.net/2024/xx/xx/图片名.png
+        // 方案C：继续使用CDN模式（推荐，已配置好，无需额外操作）
+        imageBedBase: '',
+        
         // 图片基础路径
-        basePath: 'img/'
+        basePath: 'img/',
+        
+        // 是否启用WebP格式（如果图床支持）
+        useWebP: false
       };
 
-      // 获取图片URL（支持CDN）
+      // 获取图片URL（支持多种加速方式）
       function getImageUrl(path) {
-        if (IMG_CONFIG.useCDN && IMG_CONFIG.cdnBase) {
-          return IMG_CONFIG.cdnBase + path;
+        // 统一处理路径，移除开头的 ./
+        let cleanPath = path.replace(/^\.\//, '');
+        
+        if (IMG_CONFIG.mode === 'imageBed' && IMG_CONFIG.imageBedBase) {
+          // 使用图床（移除img/前缀，因为图床可能不需要）
+          let imagePath = cleanPath.replace(/^img\//, '');
+          const ext = imagePath.split('.').pop();
+          const nameWithoutExt = imagePath.replace(/\.[^/.]+$/, '');
+          const webpPath = IMG_CONFIG.useWebP ? `${nameWithoutExt}.webp` : imagePath;
+          return IMG_CONFIG.imageBedBase + webpPath;
+        } else if (IMG_CONFIG.mode === 'cdn' && IMG_CONFIG.cdnBase) {
+          // 使用CDN（保留img/路径，因为GitHub仓库中就是img/xxx.png）
+          return IMG_CONFIG.cdnBase + cleanPath;
+        } else {
+          // 使用本地路径
+          return cleanPath.startsWith('img/') ? cleanPath : IMG_CONFIG.basePath + cleanPath.replace(/^img\//, '');
         }
-        return path;
       }
 
       // 图片预加载优化（延迟加载非关键图片）
@@ -2528,12 +2553,15 @@
         
         // 尝试多种可能的文件名格式
         const possibleNames = [
+          getImageUrl('img/4028_B #1616580.jpeg'),
+          getImageUrl('img/4028_B%20%231616580.jpeg'),
+          getImageUrl('img/4028_B_1616580.jpeg'),
+          getImageUrl('img/4028_B.jpeg'),
+          getImageUrl('./img/4028_B #1616580.jpeg'),
+          getImageUrl('img/4028_B #1616580.jpeg').replace(/\//g, '\\'),
+          // 保留PNG格式作为备用
           getImageUrl('img/4028_B #1616580.png'),
-          getImageUrl('img/4028_B%20%231616580.png'),
-          getImageUrl('img/4028_B_1616580.png'),
-          getImageUrl('img/4028_B.png'),
-          getImageUrl('./img/4028_B #1616580.png'),
-          getImageUrl('img/4028_B #1616580.png').replace(/\//g, '\\')
+          getImageUrl('img/4028_B.png')
         ];
         
         let index = 0;
@@ -2555,7 +2583,7 @@
             };
             testImg.src = possibleNames[index];
           } else {
-            console.warn('无法加载背景图片，请检查 img 文件夹中是否存在 4028_B #1616580.png');
+            console.warn('无法加载背景图片，请检查 img 文件夹中是否存在 4028_B #1616580.jpeg');
           }
         };
         tryNext();
