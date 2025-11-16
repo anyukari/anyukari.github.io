@@ -1914,13 +1914,14 @@
           `开始搜索方案：${selectedDemands.length}个需求，需要${totalRolesNeeded}个角色`
         );
 
-        // 性能优化：根据需求数量设置搜索限制
-        const maxSolutions = selectedDemands.length <= 2 ? 100 : 50;
-        const maxTimeMs = selectedDemands.length <= 2 ? 5000 : 3000;
+        // 性能优化：根据需求数量设置搜索限制（适度权衡，避免长时间阻塞）
+        const maxSolutions = selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 60 : 50);
+        const maxTimeMs = selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 4000 : 3000);
         // 如果找到足够多的完美解，可以提前终止
         const perfectSolutionThreshold = 3;
 
         const solutions = [];
+        let earlyStop = false; // 发现完美解的早停标记（尤其在≤4时启用）
         let solutionCount = 0;
         let startTime = Date.now();
         let lastProgressUpdate = 0;
@@ -1933,6 +1934,22 @@
         // 预处理：计算每个角色对每个需求的特性匹配度
         updateProgress('preprocessing', '正在预处理角色匹配度...', { progress: 0 });
         const roleDemandScores = {};
+        // 统计被需求要求的特性出现次数（需求侧需求量）
+        const demandedTraitCounts = new Map();
+        selectedDemands.forEach(d => {
+          (d.特性需求 || []).forEach(t => demandedTraitCounts.set(t, (demandedTraitCounts.get(t) || 0) + 1));
+        });
+        // 统计可用角色中各特性的供给量
+        const availableTraitCounts = new Map();
+        availableRoles.forEach(r => {
+          (r.特性 || []).forEach(t => availableTraitCounts.set(t, (availableTraitCounts.get(t) || 0) + 1));
+        });
+        // 标记稀缺特性：供给量 <= 需求量 的特性视为稀缺
+        const scarceTraits = new Set();
+        demandedTraitCounts.forEach((need, trait) => {
+          const have = availableTraitCounts.get(trait) || 0;
+          if (have <= need) scarceTraits.add(trait);
+        });
         selectedDemands.forEach((demand, demandIndex) => {
           roleDemandScores[demandIndex] = {};
           availableRoles.forEach((role) => {
@@ -1947,23 +1964,41 @@
         });
         updateProgress('greedy', '正在执行贪心算法...', { progress: 0 });
 
-        // 贪心预分配：为每个需求找到最佳角色
-        function greedyPreassign() {
+        // 贪心预分配：为每个需求找到最佳角色（支持不同排序策略）
+        function greedyPreassign(orderStrategy = 'fewestJobsFirst') {
           const assignment = Array(selectedDemands.length)
             .fill(null)
             .map(() => []);
           const usedRoles = new Set();
 
-          // 按需求数量排序，需求少的优先
-          const demandOrder = selectedDemands
-            .map((demand, index) => ({ demand, index }))
-            .sort(
-              (a, b) => a.demand.职业需求.length - b.demand.职业需求.length
-            );
+          // 计算每个需求包含的稀缺特性数量
+          const demandScarceCount = selectedDemands.map(d => {
+            const traits = d.特性需求 || [];
+            return traits.reduce((n, t) => n + (scarceTraits.has(t) ? 1 : 0), 0);
+          });
+
+          // 生成排序策略
+          let demandOrder = selectedDemands.map((demand, index) => ({ demand, index }));
+          if (orderStrategy === 'fewestJobsFirst') {
+            demandOrder.sort((a, b) => a.demand.职业需求.length - b.demand.职业需求.length);
+          } else if (orderStrategy === 'scarceTraitsFirst') {
+            demandOrder.sort((a, b) => {
+              const diff = demandScarceCount[b.index] - demandScarceCount[a.index];
+              if (diff !== 0) return diff;
+              return a.demand.职业需求.length - b.demand.职业需求.length;
+            });
+          }
 
           for (const { demand, index } of demandOrder) {
             for (const job of demand.职业需求) {
               // 找到满足职业且未使用的最佳角色
+              const alreadySatisfiedTraits = new Set();
+              // 统计当前需求已满足的特性（用于减少稀缺特性的冗余占用）
+              (assignment[index] || []).forEach(r => {
+                (r.特性 || []).forEach(t => {
+                  if ((demand.特性需求 || []).includes(t)) alreadySatisfiedTraits.add(t);
+                });
+              });
               const candidates = availableRoles
                 .filter(
                   (role) => role.职业 === job && !usedRoles.has(role.index)
@@ -1971,7 +2006,15 @@
                 .sort((a, b) => {
                   const aScore = roleDemandScores[index][a.index] || 0;
                   const bScore = roleDemandScores[index][b.index] || 0;
-                  return bScore - aScore;
+                  // 稀缺特性冗余惩罚：如果候选带有已满足且稀缺的特性，降低其排序
+                  const aPenalty = (a.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+                  const bPenalty = (b.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+                  const aFinal = aScore - aPenalty;
+                  const bFinal = bScore - bPenalty;
+                  if (bFinal === aFinal) {
+                    return a.index - b.index;
+                  }
+                  return bFinal - aFinal;
                 });
 
               if (candidates.length > 0) {
@@ -2113,7 +2156,8 @@
           // 检查是否达到限制
           if (
             Date.now() - startTime > maxTimeMs ||
-            solutionCount >= maxSolutions
+            solutionCount >= maxSolutions ||
+            earlyStop
           ) {
             return;
           }
@@ -2165,6 +2209,12 @@
                 perfectSolutions: perfectCount,
                 elapsed: Date.now() - startTime
               });
+
+              // 早停：若为小规模（≤4）且出现全完美解，直接停止进一步搜索
+              if (selectedDemands.length <= 4 && isPerfect) {
+                earlyStop = true;
+                return;
+              }
             }
             return;
           }
@@ -2202,20 +2252,32 @@
               return; // 没有可用角色，放弃这个分支
             }
 
-            // 按特性匹配度排序
+            // 按特性匹配度排序（加入稀缺特性冗余惩罚）
+            const alreadySatisfiedTraits = new Set();
+            (assignedRoles || []).forEach(r => {
+              (r.特性 || []).forEach(t => {
+                if ((currentDemand.特性需求 || []).includes(t)) alreadySatisfiedTraits.add(t);
+              });
+            });
             candidates.sort((a, b) => {
               const aScore = roleDemandScores[demandIndex][a.index] || 0;
               const bScore = roleDemandScores[demandIndex][b.index] || 0;
-              // 如果分数相同，优先选择索引小的（更早的角色）
-              if (bScore === aScore) {
+              const aPenalty = (a.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+              const bPenalty = (b.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+              const aFinal = aScore - aPenalty;
+              const bFinal = bScore - bPenalty;
+              if (bFinal === aFinal) {
                 return a.index - b.index;
               }
-              return bScore - aScore;
+              return bFinal - aFinal;
             });
 
             // 优化：限制尝试次数，优先尝试特性匹配度高的角色
-            // 如果候选角色很多，只尝试前几个最佳匹配的
-            const maxCandidates = Math.min(candidates.length, selectedDemands.length <= 2 ? 4 : 3);
+            // 控制分支宽度，兼顾质量与性能
+            const maxCandidates = Math.min(
+              candidates.length,
+              selectedDemands.length <= 2 ? 5 : (selectedDemands.length <= 4 ? 5 : 4)
+            );
 
             for (let i = 0; i < maxCandidates; i++) {
               const candidate = candidates[i];
@@ -2242,8 +2304,20 @@
           assignRolesForDemand(0, [], new Set(usedRoles));
         }
 
-        // 1. 先执行贪心算法获得基础解
-        const greedyResult = greedyPreassign();
+        // 1. 先执行贪心算法获得基础解（多策略择优）
+        const greedyResultA = greedyPreassign('fewestJobsFirst');
+        const greedyResultB = greedyPreassign('scarceTraitsFirst');
+        function scoreGreedy(gr) {
+          let s = 0;
+          for (let i = 0; i < selectedDemands.length; i++) {
+            const demand = selectedDemands[i];
+            const assignedRoles = gr.assignment[i];
+            const traitScore = calculateDemandTraitScore(assignedRoles, demand.特性需求);
+            s += traitScore.score;
+          }
+          return s;
+        }
+        const greedyResult = (scoreGreedy(greedyResultB) > scoreGreedy(greedyResultA)) ? greedyResultB : greedyResultA;
         updateProgress('greedy', '贪心算法完成，正在计算分数...', { progress: 100 });
 
         // 2. 计算贪心解的特性匹配分数
@@ -2359,6 +2433,82 @@
         const selectedDemands = getSelectedDemands();
         const selectedDemandIndicesOrdered = getSelectedDemandIndicesOrdered();
         const resultsContainer = document.getElementById("results-container");
+        // 工具：判断某解在给定需求数组上是否全完美
+        function isPerfectSolutionForDemands(solution, demandsArr) {
+          if (!solution || !Array.isArray(solution.demandScores)) return false;
+          for (let i = 0; i < demandsArr.length; i++) {
+            const score = solution.demandScores[i];
+            const need = (demandsArr[i].特性需求 || []).length;
+            if (!score || !Array.isArray(score.satisfied) || score.satisfied.length !== need) {
+              return false;
+            }
+          }
+          return true;
+        }
+        // 工具：全排列
+        function permute(arr) {
+          const out = [];
+          (function bt(path, used){
+            if (path.length === arr.length) { out.push(path.slice()); return; }
+            for (let i = 0; i < arr.length; i++) {
+              if (used[i]) continue;
+              used[i] = true;
+              path.push(arr[i]);
+              bt(path, used);
+              path.pop();
+              used[i] = false;
+            }
+          })([], Array(arr.length).fill(false));
+          return out;
+        }
+        // 顺序无关求解辅助（对≤4做全量排列，取全局最优；规模小，仅24种，性能可控）
+        function solveWithPermutations(demandsArr, roles, progressCb) {
+          if (demandsArr.length > 4) {
+            const sols = findMultiDemandSolution(demandsArr, roles, progressCb);
+            return Array.isArray(sols) && sols.length > 0 ? sols[0] : null;
+          }
+          // 生成全排列
+          const res = [];
+          (function backtrack(path, used){
+            if (path.length === demandsArr.length) { res.push(path.slice()); return; }
+            for (let i = 0; i < demandsArr.length; i++) {
+              if (used[i]) continue;
+              used[i] = true;
+              path.push(demandsArr[i]);
+              backtrack(path, used);
+              path.pop();
+              used[i] = false;
+            }
+          })([], Array(demandsArr.length).fill(false));
+          
+          let best = null;
+          let bestKey = -Infinity;
+          for (const perm of res) {
+            const sols = findMultiDemandSolution(perm, roles, null) || [];
+            if (sols.length === 0) continue;
+            const sol = sols[0];
+            let perfectCount = 0;
+            for (let i = 0; i < perm.length; i++) {
+              const score = sol.demandScores[i];
+              if (score && score.satisfied && score.satisfied.length === (perm[i].特性需求 || []).length) perfectCount++;
+            }
+            const key = perfectCount * 10000 + (sol.totalTraitScore || 0);
+            if (key > bestKey) {
+              bestKey = key;
+              const assignmentByOriginal = Array(perm.length).fill(null);
+              const scoresByOriginal = Array(perm.length).fill(null);
+              for (let i = 0; i < perm.length; i++) {
+                const originalIndex = demandsArr.indexOf(perm[i]);
+                assignmentByOriginal[originalIndex] = sol.assignment[i];
+                scoresByOriginal[originalIndex] = sol.demandScores[i];
+              }
+              best = { assignment: assignmentByOriginal, demandScores: scoresByOriginal, totalTraitScore: sol.totalTraitScore };
+            }
+            // 若已全完美，提前终止
+            if (perfectCount === perm.length) break;
+          }
+          return best;
+        }
 
         // 属性图片和星级图片映射（用于详情显示）
         const attributeImages = {
@@ -2499,14 +2649,231 @@
           // 立即更新进度，显示开始计算
           progressCallback('start', '开始计算匹配方案...', { progress: 10 });
           
-          // 若恰好选择了5个需求：第1-4为当前，第5为预备
+          // 若恰好选择了5个需求：先保证前四的最佳方案；第5为切换方案，不影响第4
           if (selectedDemandIndicesOrdered.length === 5) {
             const orderedDemands = selectedDemandIndicesOrdered.map(idx => ({ ...demands[idx], index: idx }));
             const firstThree = orderedDemands.slice(0, 3);
             const demandFour = orderedDemands[3];
             const demandFive = orderedDemands[4];
+            
+            // 同时考虑两种顺序：(前三+第4) 与 (前三+第5)
+            const fourOrderA = [...firstThree, demandFour]; // 第4为当前
+            const fourOrderB = [...firstThree, demandFive]; // 第5为当前
+            const solsA = findMultiDemandSolution(fourOrderA, selectedRoles, null) || [];
+            const solsB = findMultiDemandSolution(fourOrderB, selectedRoles, null) || [];
+            
+            // 选择优先顺序：优先找到“当前四完美 + 备用也能完美”的组合；若两者都满足则都展示；否则选择第4优先（A），再到B
+            const candidates = [];
+            if (solsA.length > 0) {
+              candidates.push({ tag: 'A', four: solsA[0], fourArr: fourOrderA });
+            }
+            if (solsB.length > 0) {
+              candidates.push({ tag: 'B', four: solsB[0], fourArr: fourOrderB });
+            }
+            
+            // 评估每个候选的“切换完美性”
+            function evalSwitchCandidate(candidate) {
+              const isFourPerfect = isPerfectSolutionForDemands(candidate.four, candidate.fourArr);
+              // 计算备用需求的完美（排除前三）
+              const usedByFirstThree = new Set();
+              for (let i = 0; i < 3; i++) {
+                const rolesList = candidate.four.assignment[i] || [];
+                rolesList.forEach(r => usedByFirstThree.add(r.index));
+              }
+              const remainRoles = selectedRoles.filter(r => !usedByFirstThree.has(r.index));
+              if (candidate.tag === 'A') {
+                const sol5 = findMultiDemandSolution([demandFive], remainRoles, null) || [];
+                const five = sol5.length ? sol5[0] : null;
+                const isFivePerfect = five ? isPerfectSolutionForDemands(five, [demandFive]) : false;
+                return { isFourPerfect, isOtherPerfect: isFivePerfect, other: five };
+              } else {
+                const sol4 = findMultiDemandSolution([demandFour], remainRoles, null) || [];
+                const four = sol4.length ? sol4[0] : null;
+                const isOtherPerfect = four ? isPerfectSolutionForDemands(four, [demandFour]) : false;
+                return { isFourPerfect, isOtherPerfect, other: four };
+              }
+            }
+            
+            const evaluated = candidates.map(c => {
+              const res = evalSwitchCandidate(c);
+              return { ...c, ...res };
+            });
+            
+            // 优先选择“四完美 & 备用完美”的；若存在任意双完美方案，只展示双完美方案（不展示不完美方案）
+            const bothPerfect = evaluated.filter(e => e.isFourPerfect && e.isOtherPerfect);
+            const showList = [];
+            if (bothPerfect.length > 0) {
+              // 只展示双完美解（最多两组：A与B）
+              const pickA_both = bothPerfect.find(e => e.tag === 'A');
+              const pickB_both = bothPerfect.find(e => e.tag === 'B');
+              if (pickA_both) showList.push(pickA_both);
+              if (pickB_both) showList.push(pickB_both);
+            } else {
+              // 无双完美时，仍然优先展示A（四完美优先于非完美），其次B
+              const hasA = evaluated.find(e => e.tag === 'A' && e.isFourPerfect) || evaluated.find(e => e.tag === 'A');
+              const hasB = evaluated.find(e => e.tag === 'B' && e.isFourPerfect) || evaluated.find(e => e.tag === 'B');
+              if (hasA) showList.push(hasA);
+              if (hasB) showList.push(hasB);
+            }
+            
+            if (showList.length > 0) {
+              // 移除进度容器
+              const progressContainerEl = document.getElementById('progress-container');
+              if (progressContainerEl) {
+                progressContainerEl.remove();
+              }
+              resultsContainer.innerHTML = "";
 
-            // 1) 先为前3个需求求多个候选解
+              // 去重：若两种顺序渲染出的“前三+当前+预备”的角色集合完全一致，则只展示一组
+              const uniqueToRender = [];
+              const seenKeys = new Set();
+              showList.slice(0, 2).forEach(choice => {
+                const chosenFour = choice.four;
+                const permUsed = choice.tag === 'A' ? fourOrderA : fourOrderB;
+                const posMap = new Map();
+                for (let p = 0; p < permUsed.length; p++) posMap.set(permUsed[p].index, p);
+                // 生成去重键：前三+当前+预备 的角色索引集合（排序后拼接）
+                function roleSetKey(rolesArr){ return (rolesArr || []).map(r=>r.index).sort((a,b)=>a-b).join(','); }
+                const parts = [];
+                // 前三
+                for (let i = 0; i < 3; i++) {
+                  const d = firstThree[i];
+                  const pos = posMap.get(d.index);
+                  parts.push(roleSetKey(chosenFour.assignment[pos]));
+                }
+                // 当前
+                if (choice.tag === 'A') {
+                  const pos4 = posMap.get(demandFour.index);
+                  parts.push(roleSetKey(chosenFour.assignment[pos4]));
+                } else {
+                  parts.push(roleSetKey(choice.other ? choice.other.assignment[0] : []));
+                }
+                // 预备
+                if (choice.tag === 'A') {
+                  parts.push(roleSetKey(choice.other ? choice.other.assignment[0] : []));
+                } else {
+                  const pos5 = posMap.get(demandFive.index);
+                  parts.push(roleSetKey(chosenFour.assignment[pos5]));
+                }
+                const key = parts.join('|');
+                if (!seenKeys.has(key)) {
+                  seenKeys.add(key);
+                  uniqueToRender.push(choice);
+                }
+              });
+
+              // 渲染选择列表（去重后，最多两组：A与/或B）
+              uniqueToRender.slice(0, 2).forEach(choice => {
+                const chosenFour = choice.four;
+                const combinedDiv = document.createElement('div');
+                combinedDiv.className = 'total-solution';
+                const titleSuffix = choice.tag === 'A' ? '（当前为第4，预备为第5）' : '（当前为第5，预备为第4）';
+                combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案${titleSuffix}</div></div>
+                <div style="color:#718096;font-size:0.9em;margin: 6px 0 10px 2px;">说明：同时考虑两种顺序，展示本顺序下的当前与预备。</div>`;
+                const combinedBody = document.createElement('div');
+
+              function renderDemandBlock(demand, assignedRoles, traitScore, titleSuffix = '') {
+                let traitDisplay = "";
+                demand.特性需求.forEach((trait) => {
+                  const isMatched = traitScore.satisfied.includes(trait);
+                  traitDisplay += `<span class="trait-badge ${isMatched ? 'matched' : 'unmatched'}">${trait}</span>`;
+                });
+                let roleImagesHTML = '';
+                if (Array.isArray(assignedRoles)) {
+                  assignedRoles.forEach((role) => {
+                    const roleAvatarNames = [
+                      getImageUrl(`img/${role.名称}.png`),
+                      getImageUrl(`img/${role.名称}.jpg`),
+                      getImageUrl(`img/${role.名称}.jpeg`),
+                      getImageUrl(`img/${role.名称}_avatar.png`),
+                      getImageUrl(`img/${role.名称}_头像.png`)
+                    ];
+                    const roleAvatar = roleAvatarNames[0];
+                    roleImagesHTML += `<img src="${roleAvatar}" alt="${role.名称}" class="result-role-avatar" data-role-name="${role.名称}" loading="lazy" onload="this.classList.add('loaded')" onerror="handleAvatarError(this);">`;
+                  });
+                }
+                let jobDisplay = "";
+                if (Array.isArray(assignedRoles) && assignedRoles.length > 0) {
+                  const assignedJobs = assignedRoles.map(role => role.职业);
+                  const availableJobs = [...assignedJobs];
+                  demand.职业需求.forEach((requiredJob, jobIndex) => {
+                    let isMatched = false;
+                    if (jobIndex < assignedJobs.length && assignedJobs[jobIndex] === requiredJob) {
+                      isMatched = true;
+                      if (jobIndex < availableJobs.length) availableJobs.splice(jobIndex, 1);
+                    } else {
+                      const matchIndex = availableJobs.indexOf(requiredJob);
+                      if (matchIndex !== -1) {
+                        isMatched = true;
+                        availableJobs.splice(matchIndex, 1);
+                      }
+                    }
+                    jobDisplay += `<span class="trait-badge ${isMatched ? 'matched' : 'unmatched'}">${requiredJob}</span> `;
+                  });
+                } else {
+                  demand.职业需求.forEach((requiredJob) => {
+                    jobDisplay += `<span class="trait-badge unmatched">${requiredJob}</span> `;
+                  });
+                }
+                jobDisplay = jobDisplay.trim();
+                const demandHTML = `
+                  <div class="demand-assignment">
+                    <div class="info-grid">
+                      <div class="row name"><strong>${demand.物品名称}${titleSuffix}</strong></div>
+                      <div class="row traits"><span style="color: #718096; font-size: 0.9em;">需要特性:</span> ${traitDisplay}</div>
+                      <div class="row jobs"><span style="color: #718096; font-size: 0.9em;">职业需求:</span> ${jobDisplay}</div>
+                    </div>
+                    <div class="images">
+                      ${roleImagesHTML}
+                    </div>
+                  </div>
+                `;
+                combinedBody.insertAdjacentHTML('beforeend', demandHTML);
+              }
+
+                // 渲染前三（按所选前三；使用 chosenFour 映射）
+                const permUsed = choice.tag === 'A' ? fourOrderA : fourOrderB;
+                const posMap = new Map();
+                for (let p = 0; p < permUsed.length; p++) posMap.set(permUsed[p].index, p);
+                for (let i = 0; i < 3; i++) {
+                  const d = firstThree[i];
+                  const pos = posMap.get(d.index);
+                  renderDemandBlock(d, chosenFour.assignment[pos], chosenFour.demandScores[pos], '');
+                }
+                // 当前第4：严格按勾选的第4（demandFour）
+                if (choice.tag === 'A') {
+                  // A：当前为第4，直接从 chosenFour 中取第4位置（映射）
+                  const pos4 = posMap.get(demandFour.index);
+                  renderDemandBlock(demandFour, chosenFour.assignment[pos4], chosenFour.demandScores[pos4], '（当前，可与预备互相切换）');
+                } else {
+                  // B：当前为第5，但展示需要把“第4”放在第4位，使用预先计算的 other（即第4的单需求解）
+                  if (choice.other) {
+                    renderDemandBlock(demandFour, choice.other.assignment[0], choice.other.demandScores[0], '（当前，可与预备互相切换）');
+                  } else {
+                    renderDemandBlock(demandFour, [], { satisfied: [], score: 0 }, '（当前，暂无可用分配）');
+                  }
+                }
+                // 预备：另一项
+                if (choice.tag === 'A') {
+                  // 预备为第5：用已计算的 other
+                  if (choice.other) {
+                    renderDemandBlock(demandFive, choice.other.assignment[0], choice.other.demandScores[0], '（预备，可与当前互相切换）');
+                  } else {
+                    renderDemandBlock(demandFive, [], { satisfied: [], score: 0 }, '（预备，暂无可用分配）');
+                  }
+                } else {
+                  // 预备为第5（此时 chosenFour 的第4位置就是第5）
+                  const pos5 = posMap.get(demandFive.index);
+                  renderDemandBlock(demandFive, chosenFour.assignment[pos5], chosenFour.demandScores[pos5], '（预备，可与当前互相切换）');
+                }
+                combinedDiv.appendChild(combinedBody);
+                resultsContainer.appendChild(combinedDiv);
+              });
+              updateBackToTopButton();
+              return;
+            }
+
+            // 不存在可切换完美解，回退到原有“前三固定+第4优先”的方案（告知无法切换完美）
             const solsForFirstThree = findMultiDemandSolution(firstThree, selectedRoles, progressCallback) || [];
 
             // 移除进度容器
@@ -2548,16 +2915,16 @@
                 traitToUsedByA.set(t, usedCount);
               });
               const solForFour = findMultiDemandSolution([demandFour], availableForB, null) || [];
-              const solForFive = findMultiDemandSolution([demandFive], availableForB, null) || [];
-              if (solForFour.length === 0 || solForFive.length === 0) {
-                continue; // 必须确保4和5均可解，才满足“切换可用”的约束
+              if (solForFour.length === 0) {
+                continue; // 至少保证第4可解
               }
               const bestFour = solForFour[0];
-              const bestFive = solForFive[0];
+              const solForFive = findMultiDemandSolution([demandFive], availableForB, null) || [];
+              const bestFive = solForFive.length > 0 ? solForFive[0] : null;
               const scoreA = solA.totalTraitScore || 0;
               const score4 = (bestFour.demandScores && bestFour.demandScores[0] && bestFour.demandScores[0].score) ? bestFour.demandScores[0].score : 0;
-              const score5 = (bestFive.demandScores && bestFive.demandScores[0] && bestFive.demandScores[0].score) ? bestFive.demandScores[0].score : 0;
-              // 评分策略：优先最大化 min(score4, score5)，再看 scoreA + score4 + score5
+              const score5 = (bestFive && bestFive.demandScores && bestFive.demandScores[0] && bestFive.demandScores[0].score) ? bestFive.demandScores[0].score : 0;
+              // 评分策略（调整为优先保障第4）：先最大化 score4，其次考虑 min(score4, score5)，再看总分
               const robustness = Math.min(score4, score5);
               const total = scoreA + score4 + score5;
               // 稀缺特性惩罚：前3个占用了4/5所需的稀缺特性越多越差；剩余数量小于等于2视为稀缺
@@ -2570,8 +2937,8 @@
                   scarcityPenalty += (3 - Math.max(remain, 0)) * (used > 0 ? used : 0);
                 }
               });
-              // 合成排序键：稀缺惩罚降低分数
-              const key = robustness * 1000 + total - scarcityPenalty * 10;
+              // 合成排序键：强权重保障第4的完备度，再看切换鲁棒性，再看合计，并扣除稀缺惩罚
+              const key = (score4 * 10000) + (robustness * 500) + total - (scarcityPenalty * 10);
               if (key > bestScoreKey) {
                 bestScoreKey = key;
                 bestCombo = { solA, bestFour, bestFive };
@@ -2590,7 +2957,8 @@
             const { solA, bestFour, bestFive } = bestCombo;
             const combinedDiv = document.createElement('div');
             combinedDiv.className = 'total-solution';
-            combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案（前三固定 + 第4 + 第5预备）</div></div>`;
+            combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案（前三固定 + 第4/第5可切换）</div></div>
+            <div style="color:#718096;font-size:0.9em;margin: 6px 0 10px 2px;">说明：第4与第5是互相切换的两个需求，分配时默认展示第4，切换后启用第5。</div>`;
             const combinedBody = document.createElement('div');
 
             // 工具函数：渲染一个需求块
@@ -2653,28 +3021,92 @@
               combinedBody.insertAdjacentHTML('beforeend', demandHTML);
             }
 
-            // 前三
+            // 前三（严格按勾选顺序，建立 perm -> 位置映射）
+            const perm3Pos = new Map();
+            firstThree.forEach((d, i) => perm3Pos.set(d.index, i));
             for (let i = 0; i < 3; i++) {
               const demand = firstThree[i];
-              const assignedRoles = solA.assignment[i];
-              const traitScore = solA.demandScores[i];
+              const pos = perm3Pos.get(demand.index);
+              const assignedRoles = solA.assignment[pos];
+              const traitScore = solA.demandScores[pos];
               renderDemandBlock(demand, assignedRoles, traitScore, '');
             }
-            // 第四（当前）
-            renderDemandBlock(demandFour, bestFour.assignment[0], bestFour.demandScores[0], '');
+            // 第四（当前，单需求解始终在位置0）
+            renderDemandBlock(demandFour, bestFour.assignment[0], bestFour.demandScores[0], '（当前，可与第5互相切换）');
             // 第五（预备）
-            renderDemandBlock(demandFive, bestFive.assignment[0], bestFive.demandScores[0], '（预备）');
+            if (bestFive) {
+              renderDemandBlock(demandFive, bestFive.assignment[0], bestFive.demandScores[0], '（预备，可与第4互相切换）');
+            } else {
+              const warnHTML = `
+                <div class="demand-assignment">
+                  <div class="info-grid">
+                    <div class="row name"><strong>${demandFive.物品名称}（预备）</strong></div>
+                    <div class="row traits"><span style="color: #718096; font-size: 0.9em;">需要特性:</span> ${
+                      (demandFive.特性需求 || []).map(t => `<span class="trait-badge unmatched">${t}</span>`).join(' ')
+                    }</div>
+                    <div class="row jobs"><span style="color: #718096; font-size: 0.9em;">职业需求:</span> ${
+                      (demandFive.职业需求 || []).map(j => `<span class="trait-badge unmatched">${j}</span>`).join(' ')
+                    }</div>
+                  </div>
+                  <div class="images"></div>
+                  <div class="no-solution" style="margin-top:10px;">当前优先保证第4完美匹配；预备需求暂无法完美，请调整角色或顺序后重试</div>
+                </div>`;
+              combinedBody.insertAdjacentHTML('beforeend', warnHTML);
+            }
 
             combinedDiv.appendChild(combinedBody);
             resultsContainer.appendChild(combinedDiv);
             updateBackToTopButton();
             return;
           } else {
-            solutions = findMultiDemandSolution(
-              selectedDemands,
-              selectedRoles,
-              progressCallback
-            );
+            // 4个需求：轻量化搜索，减少卡顿（有限排列 + 时间与数量上限）
+            if (selectedDemands.length === 4) {
+              const startTs = Date.now();
+              const maxMs = 1200;      // 最长1.2s预算
+              const maxKeep = 3;       // 最多保留3组完美解
+              const collected = [];
+              const seen = new Set();
+              // 构造有限排列候选：原序、逆序、岗位少优先、稀缺特性优先
+              function scarceCount(d){return (d.特性需求||[]).reduce((s,t)=>s+(t==='稳扎稳打'||t==='求知心切'||t==='收集控'||t==='奇思妙想'||t==='冒险家'?1:0),0)}
+              const permCandidates = [
+                selectedDemands.slice(),
+                selectedDemands.slice().reverse(),
+                selectedDemands.slice().sort((a,b)=>(a.职业需求?.length||0)-(b.职业需求?.length||0)),
+                selectedDemands.slice().sort((a,b)=>scarceCount(b)-scarceCount(a) || (a.职业需求?.length||0)-(b.职业需求?.length||0)),
+              ];
+              for (const perm of permCandidates) {
+                if (Date.now() - startTs > maxMs || collected.length >= maxKeep) break;
+                const sols = findMultiDemandSolution(perm, selectedRoles, null) || [];
+                for (const sol of sols) {
+                  if (Date.now() - startTs > maxMs || collected.length >= maxKeep) break;
+                  if (!isPerfectSolutionForDemands(sol, perm)) continue;
+                  const keyParts = perm.map((_, i) => (sol.assignment[i] || []).map(r => r.index).sort((a, b) => a - b).join('-'));
+                  const key = keyParts.join('|');
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  // 转回原顺序
+                  const assignmentByOriginal = Array(perm.length).fill(null);
+                  const scoresByOriginal = Array(perm.length).fill(null);
+                  for (let i = 0; i < perm.length; i++) {
+                    const originalIndex = selectedDemands.indexOf(perm[i]);
+                    assignmentByOriginal[originalIndex] = sol.assignment[i];
+                    scoresByOriginal[originalIndex] = sol.demandScores[i];
+                  }
+                  collected.push({
+                    assignment: assignmentByOriginal,
+                    demandScores: scoresByOriginal,
+                    totalTraitScore: sol.totalTraitScore
+                  });
+                }
+              }
+              solutions = collected;
+            } else {
+              solutions = findMultiDemandSolution(
+                selectedDemands,
+                selectedRoles,
+                progressCallback
+              );
+            }
           }
 
           // 移除进度容器
