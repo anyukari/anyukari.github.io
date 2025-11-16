@@ -111,7 +111,7 @@
       .section {
         margin-bottom: 35px;
         padding: 28px;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.75) 0%, rgba(248, 250, 252, 0.75) 100%);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 250, 252, 0.80) 100%);
         border-radius: 18px;
         box-shadow: 
           0 8px 24px rgba(0, 0, 0, 0.15),
@@ -122,12 +122,12 @@
       }
 
       .section:hover {
-        transform: translateY(-3px);
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.85) 100%);
+        transform: none;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 250, 252, 0.80) 100%);
         box-shadow: 
-          0 12px 32px rgba(0, 0, 0, 0.2),
-          0 0 0 1px rgba(102, 126, 234, 0.2) inset;
-        border-color: rgba(102, 126, 234, 0.25);
+          0 8px 24px rgba(0, 0, 0, 0.15),
+          0 0 0 1px rgba(102, 126, 234, 0.1) inset;
+        border-color: rgba(102, 126, 234, 0.15);
       }
 
       h2 {
@@ -334,13 +334,13 @@
         border: 2px solid rgba(102, 126, 234, 0.2);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         flex-shrink: 0;
-        background: linear-gradient(135deg, rgba(240, 242, 247, 0.8) 0%, rgba(226, 232, 240, 0.8) 100%);
+        background: transparent; /* 确保PNG透明区域不被底色填充 */
         transition: opacity 0.3s ease;
       }
 
       /* 图片懒加载占位符 */
       img[loading="lazy"] {
-        background: linear-gradient(135deg, rgba(240, 242, 247, 0.8) 0%, rgba(226, 232, 240, 0.8) 100%);
+        background: linear-gradient(135deg, rgba(240, 242, 247, 0.8) 0%, rgba(226, 232, 240, 0.8) 100%); /* 占位，仅在未加载时显示 */
         transition: opacity 0.3s ease;
       }
 
@@ -350,6 +350,7 @@
 
       img[loading="lazy"].loaded {
         opacity: 1;
+        background: transparent !important; /* 加载完成后移除占位背景，保留透明通道效果 */
       }
 
 
