@@ -578,6 +578,26 @@
         border: 1px solid #e2e8f0;
       }
 
+      /* 结果信息行的通用布局（桌面端保持紧凑横向） */
+      .demand-assignment .info-grid {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .demand-assignment .info-grid .row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .demand-assignment .images {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
       .result-role-avatar {
         width: 70px;
         height: 70px;
@@ -791,6 +811,20 @@
 
         .demand-assignment {
           padding: 12px;
+        }
+        /* 手机端三行显示：名称 / 需要特性 / 职业需求 */
+        .demand-assignment .info-grid {
+          display: block !important;
+        }
+        .demand-assignment .info-grid .row {
+          display: block !important;
+          margin-top: 6px;
+        }
+        .demand-assignment .info-grid .row.name {
+          margin-top: 0;
+        }
+        .demand-assignment .images {
+          margin-top: 8px;
         }
 
         /* 属性标题在移动端优化 */
@@ -2606,14 +2640,12 @@
               jobDisplay = jobDisplay.trim();
               const demandHTML = `
                 <div class="demand-assignment">
-                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
-                    <strong>${demand.物品名称}${titleSuffix}</strong>
-                    <span style="color: #718096; font-size: 0.9em;">需要特性:</span>
-                    ${traitDisplay}
-                    <span style="color: #718096; font-size: 0.9em; margin-left: 8px;">职业需求:</span>
-                    ${jobDisplay}
+                  <div class="info-grid">
+                    <div class="row name"><strong>${demand.物品名称}${titleSuffix}</strong></div>
+                    <div class="row traits"><span style="color: #718096; font-size: 0.9em;">需要特性:</span> ${traitDisplay}</div>
+                    <div class="row jobs"><span style="color: #718096; font-size: 0.9em;">职业需求:</span> ${jobDisplay}</div>
                   </div>
-                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <div class="images">
                     ${roleImagesHTML}
                   </div>
                 </div>
@@ -2781,14 +2813,12 @@
             
             let demandHTML = `
                         <div class="demand-assignment">
-                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
-                                <strong>${demand.物品名称}</strong>
-                                <span style="color: #718096; font-size: 0.9em;">特性:</span>
-                                ${traitDisplay}
-                                <span style="color: #718096; font-size: 0.9em; margin-left: 8px;">职业:</span>
-                                ${jobDisplay}
+                            <div class="info-grid">
+                                <div class="row name"><strong>${demand.物品名称}</strong></div>
+                                <div class="row traits"><span style="color: #718096; font-size: 0.9em;">需要特性:</span> ${traitDisplay}</div>
+                                <div class="row jobs"><span style="color: #718096; font-size: 0.9em;">职业需求:</span> ${jobDisplay}</div>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <div class="images">
                                 ${roleImagesHTML}
                             </div>
                         </div>
