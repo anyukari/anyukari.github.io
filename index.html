@@ -257,6 +257,30 @@
           inset 0 1px 0 rgba(255, 255, 255, 0.25);
       }
 
+      /* 需求选中顺序徽标 */
+      .selection-badge {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        pointer-events: none;
+      }
+      .selection-badge.standby {
+        background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+        box-shadow: 0 2px 8px rgba(16,185,129,0.35);
+      }
+
       .role-check-indicator {
         display: none;
       }
@@ -1304,19 +1328,36 @@
 
       // 保存需求选择
       function saveSelectedDemands() {
-        const selectedDemands = [];
+        const selectedSet = [];
         document.querySelectorAll('.checkbox-item[data-demand-index]').forEach(item => {
           const demandIndex = parseInt(item.getAttribute('data-demand-index'));
           if (item.classList.contains('selected')) {
-            selectedDemands.push(demandIndex);
+            selectedSet.push(demandIndex);
           }
         });
-        localStorage.setItem('selectedDemands', JSON.stringify(selectedDemands));
+        localStorage.setItem('selectedDemands', JSON.stringify(selectedSet));
+        if (!Array.isArray(window.selectedDemandsOrder)) {
+          window.selectedDemandsOrder = [];
+        }
+        // 同步清理顺序中未被选中的索引
+        window.selectedDemandsOrder = window.selectedDemandsOrder.filter(idx => selectedSet.includes(idx));
+        localStorage.setItem('selectedDemandsOrder', JSON.stringify(window.selectedDemandsOrder));
+        updateDemandSelectionBadges();
       }
 
       // 加载需求选择
       function loadSelectedDemands() {
         const saved = localStorage.getItem('selectedDemands');
+        const savedOrder = localStorage.getItem('selectedDemandsOrder');
+        if (savedOrder) {
+          try {
+            window.selectedDemandsOrder = JSON.parse(savedOrder);
+          } catch {
+            window.selectedDemandsOrder = [];
+          }
+        } else {
+          window.selectedDemandsOrder = [];
+        }
         if (saved) {
           try {
             const selectedIndices = JSON.parse(saved);
@@ -1329,12 +1370,40 @@
                 item.classList.remove('selected');
               }
             });
+            // 若无顺序则用集合顺序填充；若有则清理无效项
+            if (!Array.isArray(window.selectedDemandsOrder) || window.selectedDemandsOrder.length === 0) {
+              window.selectedDemandsOrder = Array.from(selectedSet);
+            } else {
+              window.selectedDemandsOrder = window.selectedDemandsOrder.filter(idx => selectedSet.has(idx));
+            }
+            localStorage.setItem('selectedDemandsOrder', JSON.stringify(window.selectedDemandsOrder));
+            updateDemandSelectionBadges();
             return true;
           } catch (e) {
             console.error('加载保存的需求选择失败:', e);
           }
         }
         return false;
+      }
+
+      // 更新需求选中顺序徽标
+      function updateDemandSelectionBadges() {
+        const order = Array.isArray(window.selectedDemandsOrder) ? window.selectedDemandsOrder : [];
+        const indexMap = new Map();
+        order.forEach((idx, i) => indexMap.set(idx, i + 1));
+        document.querySelectorAll('.checkbox-item[data-demand-index]').forEach(item => {
+          const old = item.querySelector('.selection-badge');
+          if (old) old.remove();
+          const demandIndex = parseInt(item.getAttribute('data-demand-index'));
+          if (item.classList.contains('selected') && indexMap.has(demandIndex)) {
+            const rank = indexMap.get(demandIndex);
+            const badge = document.createElement('span');
+            badge.className = 'selection-badge' + (rank === 5 ? ' standby' : '');
+            badge.textContent = String(rank);
+            badge.title = rank === 5 ? '预备第5个（第4个完成后切换）' : `第${rank}个需求`;
+            item.appendChild(badge);
+          }
+        });
       }
 
       // 处理头像加载错误
@@ -1638,17 +1707,30 @@
               
               // 如果要选中新项，检查是否已达到最大选择数量
               if (!isCurrentlySelected) {
-                // 计算当前已选择的需求数量
-                const selectedCount = document.querySelectorAll('.checkbox-item[data-demand-index].selected').length;
-                if (selectedCount >= 4) {
-                  // 显示提示信息
-                  showMessage('最多只能选择4个需求', 'warning');
-                  return; // 阻止选择
+                // 初始化顺序数组
+                if (!Array.isArray(window.selectedDemandsOrder)) {
+                  window.selectedDemandsOrder = [];
+                }
+                const currentLen = window.selectedDemandsOrder.length;
+                if (currentLen >= 5) {
+                  showMessage('最多只能选择5个（第5个为预备）', 'warning');
+                  return;
+                }
+                if (!window.selectedDemandsOrder.includes(demandIndex)) {
+                  window.selectedDemandsOrder.push(demandIndex);
                 }
               }
               
               this.classList.toggle('selected');
-              saveSelectedDemands(); // 保存需求选择
+              // 如果是取消选择，从顺序中删除
+              if (isCurrentlySelected && Array.isArray(window.selectedDemandsOrder)) {
+                window.selectedDemandsOrder = window.selectedDemandsOrder.filter(idx => idx !== demandIndex);
+              }
+              localStorage.setItem('selectedDemandsOrder', JSON.stringify(window.selectedDemandsOrder || []));
+              saveSelectedDemands(); // 保存需求选择与顺序
+              if (!isCurrentlySelected && Array.isArray(window.selectedDemandsOrder) && window.selectedDemandsOrder.length === 5) {
+                showMessage('已设置第5个为预备：第4个完成后将切换', 'info');
+              }
             });
             categoryContainer.appendChild(checkboxItem);
           });
@@ -1674,16 +1756,34 @@
 
       // 获取选中的需求
       function getSelectedDemands() {
-        const selectedDemands = [];
-        document.querySelectorAll('.checkbox-item[data-demand-index]').forEach(item => {
-          const demandIndex = parseInt(item.getAttribute('data-demand-index'));
-          if (item.classList.contains('selected')) {
-            selectedDemands.push({ ...demands[demandIndex], index: demandIndex });
-          }
-        });
-        return selectedDemands;
+        const order = Array.isArray(window.selectedDemandsOrder) ? window.selectedDemandsOrder.slice() : null;
+        if (order && order.length > 0) {
+          return order
+            .map(idx => ({ ...demands[idx], index: idx }))
+            .filter(d => {
+              const el = document.querySelector(`.checkbox-item[data-demand-index="${d.index}"]`);
+              return el && el.classList.contains('selected');
+            });
+        } else {
+          const selectedDemands = [];
+          document.querySelectorAll('.checkbox-item[data-demand-index]').forEach(item => {
+            const demandIndex = parseInt(item.getAttribute('data-demand-index'));
+            if (item.classList.contains('selected')) {
+              selectedDemands.push({ ...demands[demandIndex], index: demandIndex });
+            }
+          });
+          return selectedDemands;
+        }
       }
 
+      // 获取按顺序选中的需求索引
+      function getSelectedDemandIndicesOrdered() {
+        const order = Array.isArray(window.selectedDemandsOrder) ? window.selectedDemandsOrder.slice() : [];
+        return order.filter(idx => {
+          const el = document.querySelector(`.checkbox-item[data-demand-index="${idx}"]`);
+          return el && el.classList.contains('selected');
+        });
+      }
       // 获取角色匹配的特性列表
       function getMatchedTraits(roleTraits, demandTraits) {
         const matched = [];
@@ -2223,6 +2323,7 @@
       function matchDemands() {
         const selectedRoles = getSelectedRoles();
         const selectedDemands = getSelectedDemands();
+        const selectedDemandIndicesOrdered = getSelectedDemandIndicesOrdered();
         const resultsContainer = document.getElementById("results-container");
 
         // 属性图片和星级图片映射（用于详情显示）
@@ -2364,11 +2465,185 @@
           // 立即更新进度，显示开始计算
           progressCallback('start', '开始计算匹配方案...', { progress: 10 });
           
-          solutions = findMultiDemandSolution(
-            selectedDemands,
-            selectedRoles,
-            progressCallback
-          );
+          // 若恰好选择了5个需求：第1-4为当前，第5为预备
+          if (selectedDemandIndicesOrdered.length === 5) {
+            const orderedDemands = selectedDemandIndicesOrdered.map(idx => ({ ...demands[idx], index: idx }));
+            const firstThree = orderedDemands.slice(0, 3);
+            const demandFour = orderedDemands[3];
+            const demandFive = orderedDemands[4];
+
+            // 1) 先为前3个需求求多个候选解
+            const solsForFirstThree = findMultiDemandSolution(firstThree, selectedRoles, progressCallback) || [];
+
+            // 移除进度容器
+            const progressContainerEl = document.getElementById('progress-container');
+            if (progressContainerEl) {
+              progressContainerEl.remove();
+            }
+            resultsContainer.innerHTML = "";
+
+            if (!solsForFirstThree || solsForFirstThree.length === 0) {
+              resultsContainer.innerHTML =
+                '<div class="no-solution">无法为前3个需求找到满足条件的方案</div>';
+              showMessage('未找到匹配方案', 'warning');
+              updateBackToTopButton();
+              return;
+            }
+
+            // 2) 对每个候选解，使用“剩余可用角色”分别给需求4和需求5求解
+            let bestCombo = null;
+            let bestScoreKey = -1;
+            const maxFirstThreeCandidates = Math.min(5, solsForFirstThree.length);
+            for (let i = 0; i < maxFirstThreeCandidates; i++) {
+              const solA = solsForFirstThree[i];
+              // 收集前3个用到的角色
+              const usedByA = new Set();
+              for (let k = 0; k < 3; k++) {
+                const rolesList = solA.assignment[k] || [];
+                rolesList.forEach(r => usedByA.add(r.index));
+              }
+              const availableForB = selectedRoles.filter(r => !usedByA.has(r.index));
+              // 稀缺特性优先保护：如果4或5需要的特性在剩余角色中数量很少，则优先保留这些角色
+              const scarceTraits = Array.from(new Set([...(demandFour.特性需求 || []), ...(demandFive.特性需求 || [])]));
+              const traitToRemainCount = new Map();
+              const traitToUsedByA = new Map();
+              scarceTraits.forEach(t => {
+                const remainCount = availableForB.filter(r => (r.特性 || []).includes(t)).length;
+                const usedCount = Array.from(usedByA).map(idx => roles[idx]).filter(r => (r.特性 || []).includes(t)).length;
+                traitToRemainCount.set(t, remainCount);
+                traitToUsedByA.set(t, usedCount);
+              });
+              const solForFour = findMultiDemandSolution([demandFour], availableForB, null) || [];
+              const solForFive = findMultiDemandSolution([demandFive], availableForB, null) || [];
+              if (solForFour.length === 0 || solForFive.length === 0) {
+                continue; // 必须确保4和5均可解，才满足“切换可用”的约束
+              }
+              const bestFour = solForFour[0];
+              const bestFive = solForFive[0];
+              const scoreA = solA.totalTraitScore || 0;
+              const score4 = (bestFour.demandScores && bestFour.demandScores[0] && bestFour.demandScores[0].score) ? bestFour.demandScores[0].score : 0;
+              const score5 = (bestFive.demandScores && bestFive.demandScores[0] && bestFive.demandScores[0].score) ? bestFive.demandScores[0].score : 0;
+              // 评分策略：优先最大化 min(score4, score5)，再看 scoreA + score4 + score5
+              const robustness = Math.min(score4, score5);
+              const total = scoreA + score4 + score5;
+              // 稀缺特性惩罚：前3个占用了4/5所需的稀缺特性越多越差；剩余数量小于等于2视为稀缺
+              let scarcityPenalty = 0;
+              scarceTraits.forEach(t => {
+                const remain = traitToRemainCount.get(t) || 0;
+                const used = traitToUsedByA.get(t) || 0;
+                if (remain <= 2) {
+                  // 惩罚强度随稀缺程度提高
+                  scarcityPenalty += (3 - Math.max(remain, 0)) * (used > 0 ? used : 0);
+                }
+              });
+              // 合成排序键：稀缺惩罚降低分数
+              const key = robustness * 1000 + total - scarcityPenalty * 10;
+              if (key > bestScoreKey) {
+                bestScoreKey = key;
+                bestCombo = { solA, bestFour, bestFive };
+              }
+            }
+
+            if (!bestCombo) {
+              resultsContainer.innerHTML =
+                '<div class="no-solution">在保证前3个不与第4/第5冲突的前提下，无法同时满足第4与第5的匹配，请调整角色或顺序</div>';
+              showMessage('未找到可切换的4/5组合', 'warning');
+              updateBackToTopButton();
+              return;
+            }
+
+            // 3) 渲染：前3个 + 第4个（当前） + 第5个（预备）
+            const { solA, bestFour, bestFive } = bestCombo;
+            const combinedDiv = document.createElement('div');
+            combinedDiv.className = 'total-solution';
+            combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案（前三固定 + 第4 + 第5预备）</div></div>`;
+            const combinedBody = document.createElement('div');
+
+            // 工具函数：渲染一个需求块
+            function renderDemandBlock(demand, assignedRoles, traitScore, titleSuffix = '') {
+              let traitDisplay = "";
+              demand.特性需求.forEach((trait) => {
+                const isMatched = traitScore.satisfied.includes(trait);
+                traitDisplay += `<span class="trait-badge ${isMatched ? 'matched' : 'unmatched'}">${trait}</span>`;
+              });
+              let roleImagesHTML = '';
+              if (Array.isArray(assignedRoles)) {
+                assignedRoles.forEach((role) => {
+                  const roleAvatarNames = [
+                    getImageUrl(`img/${role.名称}.png`),
+                    getImageUrl(`img/${role.名称}.jpg`),
+                    getImageUrl(`img/${role.名称}.jpeg`),
+                    getImageUrl(`img/${role.名称}_avatar.png`),
+                    getImageUrl(`img/${role.名称}_头像.png`)
+                  ];
+                  const roleAvatar = roleAvatarNames[0];
+                  roleImagesHTML += `<img src="${roleAvatar}" alt="${role.名称}" class="result-role-avatar" data-role-name="${role.名称}" loading="lazy" onload="this.classList.add('loaded')" onerror="handleAvatarError(this);">`;
+                });
+              }
+              let jobDisplay = "";
+              if (Array.isArray(assignedRoles) && assignedRoles.length > 0) {
+                const assignedJobs = assignedRoles.map(role => role.职业);
+                const availableJobs = [...assignedJobs];
+                demand.职业需求.forEach((requiredJob, jobIndex) => {
+                  let isMatched = false;
+                  if (jobIndex < assignedJobs.length && assignedJobs[jobIndex] === requiredJob) {
+                    isMatched = true;
+                    if (jobIndex < availableJobs.length) availableJobs.splice(jobIndex, 1);
+                  } else {
+                    const matchIndex = availableJobs.indexOf(requiredJob);
+                    if (matchIndex !== -1) {
+                      isMatched = true;
+                      availableJobs.splice(matchIndex, 1);
+                    }
+                  }
+                  jobDisplay += `<span class="trait-badge ${isMatched ? 'matched' : 'unmatched'}">${requiredJob}</span> `;
+                });
+              } else {
+                demand.职业需求.forEach((requiredJob) => {
+                  jobDisplay += `<span class="trait-badge unmatched">${requiredJob}</span> `;
+                });
+              }
+              jobDisplay = jobDisplay.trim();
+              const demandHTML = `
+                <div class="demand-assignment">
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <strong>${demand.物品名称}${titleSuffix}</strong>
+                    <span style="color: #718096; font-size: 0.9em;">需要特性:</span>
+                    ${traitDisplay}
+                    <span style="color: #718096; font-size: 0.9em; margin-left: 8px;">职业需求:</span>
+                    ${jobDisplay}
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    ${roleImagesHTML}
+                  </div>
+                </div>
+              `;
+              combinedBody.insertAdjacentHTML('beforeend', demandHTML);
+            }
+
+            // 前三
+            for (let i = 0; i < 3; i++) {
+              const demand = firstThree[i];
+              const assignedRoles = solA.assignment[i];
+              const traitScore = solA.demandScores[i];
+              renderDemandBlock(demand, assignedRoles, traitScore, '');
+            }
+            // 第四（当前）
+            renderDemandBlock(demandFour, bestFour.assignment[0], bestFour.demandScores[0], '');
+            // 第五（预备）
+            renderDemandBlock(demandFive, bestFive.assignment[0], bestFive.demandScores[0], '（预备）');
+
+            combinedDiv.appendChild(combinedBody);
+            resultsContainer.appendChild(combinedDiv);
+            updateBackToTopButton();
+            return;
+          } else {
+            solutions = findMultiDemandSolution(
+              selectedDemands,
+              selectedRoles,
+              progressCallback
+            );
+          }
 
           // 移除进度容器
           const progressContainerEl = document.getElementById('progress-container');
@@ -2508,9 +2783,9 @@
                         <div class="demand-assignment">
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
                                 <strong>${demand.物品名称}</strong>
-                                <span style="color: #718096; font-size: 0.9em;">需要特性:</span>
+                                <span style="color: #718096; font-size: 0.9em;">特性:</span>
                                 ${traitDisplay}
-                                <span style="color: #718096; font-size: 0.9em; margin-left: 8px;">职业需求:</span>
+                                <span style="color: #718096; font-size: 0.9em; margin-left: 8px;">职业:</span>
                                 ${jobDisplay}
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
