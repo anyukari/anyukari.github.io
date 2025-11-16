@@ -2849,11 +2849,11 @@
                 if (choice.tag === 'A') {
                   // A：当前为第4，直接从 chosenFour 中取第4位置（映射）
                   const pos4 = posMap.get(demandFour.index);
-                  renderDemandBlock(demandFour, chosenFour.assignment[pos4], chosenFour.demandScores[pos4], '（当前，可与预备互相切换）');
+                  renderDemandBlock(demandFour, chosenFour.assignment[pos4], chosenFour.demandScores[pos4], `（当前，可与${demandFive.物品名称}互相切换）`);
                 } else {
                   // B：当前为第5，但展示需要把“第4”放在第4位，使用预先计算的 other（即第4的单需求解）
                   if (choice.other) {
-                    renderDemandBlock(demandFour, choice.other.assignment[0], choice.other.demandScores[0], '（当前，可与预备互相切换）');
+                    renderDemandBlock(demandFour, choice.other.assignment[0], choice.other.demandScores[0], `（当前，可与${demandFive.物品名称}互相切换）`);
                   } else {
                     renderDemandBlock(demandFour, [], { satisfied: [], score: 0 }, '（当前，暂无可用分配）');
                   }
@@ -2862,14 +2862,14 @@
                 if (choice.tag === 'A') {
                   // 预备为第5：用已计算的 other
                   if (choice.other) {
-                    renderDemandBlock(demandFive, choice.other.assignment[0], choice.other.demandScores[0], '（预备，可与当前互相切换）');
+                    renderDemandBlock(demandFive, choice.other.assignment[0], choice.other.demandScores[0], `（预备，可与${demandFour.物品名称}互相切换）`);
                   } else {
                     renderDemandBlock(demandFive, [], { satisfied: [], score: 0 }, '（预备，暂无可用分配）');
                   }
                 } else {
                   // 预备为第5（此时 chosenFour 的第4位置就是第5）
                   const pos5 = posMap.get(demandFive.index);
-                  renderDemandBlock(demandFive, chosenFour.assignment[pos5], chosenFour.demandScores[pos5], '（预备，可与当前互相切换）');
+                  renderDemandBlock(demandFive, chosenFour.assignment[pos5], chosenFour.demandScores[pos5], `（预备，可与${demandFour.物品名称}互相切换）`);
                 }
                 combinedDiv.appendChild(combinedBody);
                 resultsContainer.appendChild(combinedDiv);
@@ -3037,15 +3037,15 @@
               renderDemandBlock(demand, assignedRoles, traitScore, '');
             }
             // 第四（当前，单需求解始终在位置0）
-            renderDemandBlock(demandFour, bestFour.assignment[0], bestFour.demandScores[0], '（当前，可与第5互相切换）');
+            renderDemandBlock(demandFour, bestFour.assignment[0], bestFour.demandScores[0], `（当前，可与${demandFive.物品名称}互相切换）`);
             // 第五（预备）
             if (bestFive) {
-              renderDemandBlock(demandFive, bestFive.assignment[0], bestFive.demandScores[0], '（预备，可与第4互相切换）');
+              renderDemandBlock(demandFive, bestFive.assignment[0], bestFive.demandScores[0], `（预备，可与${demandFour.物品名称}互相切换）`);
             } else {
               const warnHTML = `
                 <div class="demand-assignment">
                   <div class="info-grid">
-                    <div class="row name"><strong>${demandFive.物品名称}（预备）</strong></div>
+                    <div class="row name"><strong>${demandFive.物品名称}（预备，可与${demandFour.物品名称}互相切换）</strong></div>
                     <div class="row traits"><span style="color: #718096; font-size: 0.9em;">需要特性:</span> ${
                       (demandFive.特性需求 || []).map(t => `<span class="trait-badge unmatched">${t}</span>`).join(' ')
                     }</div>
