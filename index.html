@@ -1412,6 +1412,22 @@
           } catch (e) {
             console.error('加载保存的需求选择失败:', e);
           }
+        } else {
+          // 首次访问，设置默认选择：帽子(3), 罐子(4), 灯泡(5), 节奏卡带(9), 射击卡带(10)
+          const defaultIndices = [3, 4, 5, 9, 10];
+          window.selectedDemandsOrder = defaultIndices.slice();
+          document.querySelectorAll('.checkbox-item[data-demand-index]').forEach(item => {
+            const demandIndex = parseInt(item.getAttribute('data-demand-index'));
+            if (defaultIndices.includes(demandIndex)) {
+              item.classList.add('selected');
+            } else {
+              item.classList.remove('selected');
+            }
+          });
+          localStorage.setItem('selectedDemands', JSON.stringify(defaultIndices));
+          localStorage.setItem('selectedDemandsOrder', JSON.stringify(window.selectedDemandsOrder));
+          updateDemandSelectionBadges();
+          return true;
         }
         return false;
       }
@@ -1696,6 +1712,7 @@
         categories.forEach((category, categoryIndex) => {
           // 创建类别标题
           const categoryTitle = document.createElement("div");
+          // 恢复最初的绿色样式
           categoryTitle.style.cssText = "font-size: 1.4em; font-weight: 700; color: #059669; margin: 28px 0 18px 0; padding: 14px 0 14px 18px; border-left: 6px solid #059669; background: linear-gradient(135deg, rgba(5, 150, 105, 0.1) 0%, rgba(5, 150, 105, 0.04) 50%, rgba(255, 255, 255, 0) 100%); border-radius: 12px; box-shadow: 0 2px 8px rgba(5, 150, 105, 0.1);";
           categoryTitle.textContent = `${category}`;
           demandsContainer.appendChild(categoryTitle);
@@ -2768,9 +2785,7 @@
                 const chosenFour = choice.four;
                 const combinedDiv = document.createElement('div');
                 combinedDiv.className = 'total-solution';
-                const titleSuffix = choice.tag === 'A' ? '（当前为第4，预备为第5）' : '（当前为第5，预备为第4）';
-                combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案${titleSuffix}</div></div>
-                <div style="color:#718096;font-size:0.9em;margin: 6px 0 10px 2px;">说明：同时考虑两种顺序，展示本顺序下的当前与预备。</div>`;
+                combinedDiv.innerHTML = `<div class="solution-header"><div>匹配方案</div></div>`;
                 const combinedBody = document.createElement('div');
 
               function renderDemandBlock(demand, assignedRoles, traitScore, titleSuffix = '') {
@@ -2847,11 +2862,11 @@
                   const pos4 = posMap.get(demandFour.index);
                   renderDemandBlock(demandFour, chosenFour.assignment[pos4], chosenFour.demandScores[pos4], `（当前，可与${demandFive.物品名称}互相切换）`);
                 } else {
-                  // B：当前为第5，但展示需要把“第4”放在第4位，使用预先计算的 other（即第4的单需求解）
+                  // B：当前为第5，但展示需要把"第4"放在第4位，使用预先计算的 other（即第4的单需求解）
                   if (choice.other) {
                     renderDemandBlock(demandFour, choice.other.assignment[0], choice.other.demandScores[0], `（当前，可与${demandFive.物品名称}互相切换）`);
                   } else {
-                    renderDemandBlock(demandFour, [], { satisfied: [], score: 0 }, '（当前，暂无可用分配）');
+                    renderDemandBlock(demandFour, [], { satisfied: [], score: 0 }, '');
                   }
                 }
                 // 预备：另一项
@@ -2860,7 +2875,7 @@
                   if (choice.other) {
                     renderDemandBlock(demandFive, choice.other.assignment[0], choice.other.demandScores[0], `（预备，可与${demandFour.物品名称}互相切换）`);
                   } else {
-                    renderDemandBlock(demandFive, [], { satisfied: [], score: 0 }, '（预备，暂无可用分配）');
+                    renderDemandBlock(demandFive, [], { satisfied: [], score: 0 }, '');
                   }
                 } else {
                   // 预备为第5（此时 chosenFour 的第4位置就是第5）
@@ -3050,7 +3065,7 @@
                     }</div>
                   </div>
                   <div class="images"></div>
-                  <div class="no-solution" style="margin-top:10px;">当前优先保证第4完美匹配；预备需求暂无法完美，请调整角色或顺序后重试</div>
+                  <div class="no-solution" style="margin-top:10px;">暂无法完美匹配，请调整角色或顺序后重试</div>
                 </div>`;
               combinedBody.insertAdjacentHTML('beforeend', warnHTML);
             }
@@ -3062,7 +3077,8 @@
           } else {
             // 4个需求：轻量化搜索，减少卡顿（有限排列 + 时间与数量上限）
             if (selectedDemands.length === 4) {
-              // 先开启“小窗口快速回溯”：500ms内若找到首个完美解，立即返回
+              // 先开启"小窗口快速回溯"：500ms内若找到首个完美解，确认存在完美解后继续收集更多
+              let hasPerfect = false;
               try {
                 window.FMD_MAX_MS = 500;
                 window.FMD_MAX_SOL = 30;
@@ -3079,29 +3095,16 @@
                   return true;
                 });
                 if (fastPerfect) {
-                  solutions = [fastPerfect];
-                  // 清理覆盖并直接使用结果
-                  delete window.FMD_MAX_MS;
-                  delete window.FMD_MAX_SOL;
-                  // 跳过后续耗时策略
-                  // 移除进度容器
-                  const progressContainerEl = document.getElementById('progress-container');
-                  if (progressContainerEl) {
-                    progressContainerEl.remove();
-                  }
-                  resultsContainer.innerHTML = "";
-                  // 走通用渲染路径（后续代码会处理）
-                } else {
-                  delete window.FMD_MAX_MS;
-                  delete window.FMD_MAX_SOL;
+                  hasPerfect = true;
                 }
+                delete window.FMD_MAX_MS;
+                delete window.FMD_MAX_SOL;
               } catch (e) {
                 delete window.FMD_MAX_MS;
                 delete window.FMD_MAX_SOL;
               }
-              if (solutions.length > 0) {
-                // 已通过快速回溯拿到完美解，跳过有限排列策略
-              } else {
+              // 无论是否找到快速完美解，都继续收集多个完美解
+              {
               const startTs = Date.now();
               const maxMs = 1200;      // 最长1.2s预算
               const maxKeep = 5;       // 最多保留5组最优解
@@ -3121,9 +3124,6 @@
                 const sols = findMultiDemandSolution(perm, selectedRoles, null) || [];
                 for (const sol of sols) {
                   if (Date.now() - startTs > maxMs || collectedPerfect.length >= maxKeep) break;
-                  const keyParts = perm.map((_, i) => (sol.assignment[i] || []).map(r => r.index).sort((a, b) => a - b).join('-'));
-                  const key = keyParts.join('|');
-                  if (seen.has(key)) continue;
                   // 转回原顺序
                   const assignmentByOriginal = Array(perm.length).fill(null);
                   const scoresByOriginal = Array(perm.length).fill(null);
@@ -3132,6 +3132,10 @@
                     assignmentByOriginal[originalIndex] = sol.assignment[i];
                     scoresByOriginal[originalIndex] = sol.demandScores[i];
                   }
+                  // 基于原顺序生成去重键，确保相同角色分配（映射后）被正确去重
+                  const keyParts = selectedDemands.map((_, i) => (assignmentByOriginal[i] || []).map(r => r.index).sort((a, b) => a - b).join('-'));
+                  const key = keyParts.join('|');
+                  if (seen.has(key)) continue;
                   const mapped = {
                     assignment: assignmentByOriginal,
                     demandScores: scoresByOriginal,
@@ -3146,10 +3150,10 @@
                   }
                 }
               }
-              // 若有限排列未找到任何结果，则做一次“全排列兜底”快速尝试（剩余时间<=600ms，找到首个完美即停）
-              if (collectedPerfect.length === 0 && collectedBest.length === 0) {
-                const remainBudget = 600;
-                const deadline = Date.now() + Math.max(0, remainBudget);
+              // 若有限排列未找到足够完美解，则做一次"全排列兜底"尝试（剩余时间<=600ms，收集多个完美解）
+              if (collectedPerfect.length < maxKeep) {
+                const remainBudget = Math.max(600, maxMs - (Date.now() - startTs));
+                const deadline = Date.now() + remainBudget;
                 const allPerms = (function permute(arr) {
                   const out = [];
                   (function bt(path, used){
@@ -3166,14 +3170,11 @@
                   return out;
                 })(selectedDemands);
                 for (const perm of allPerms) {
-                  if (Date.now() > deadline) break;
+                  if (Date.now() > deadline || collectedPerfect.length >= maxKeep) break;
                   const sols = findMultiDemandSolution(perm, selectedRoles, null) || [];
                   for (const sol of sols) {
-                    if (Date.now() > deadline) break;
+                    if (Date.now() > deadline || collectedPerfect.length >= maxKeep) break;
                     if (!isPerfectSolutionForDemands(sol, perm)) continue;
-                    const keyParts = perm.map((_, i) => (sol.assignment[i] || []).map(r => r.index).sort((a, b) => a - b).join('-'));
-                    const key = keyParts.join('|');
-                    if (seen.has(key)) continue;
                     // 转回原顺序
                     const assignmentByOriginal = Array(perm.length).fill(null);
                     const scoresByOriginal = Array(perm.length).fill(null);
@@ -3182,14 +3183,17 @@
                       assignmentByOriginal[originalIndex] = sol.assignment[i];
                       scoresByOriginal[originalIndex] = sol.demandScores[i];
                     }
+                    // 基于原顺序生成去重键
+                    const keyParts = selectedDemands.map((_, i) => (assignmentByOriginal[i] || []).map(r => r.index).sort((a, b) => a - b).join('-'));
+                    const key = keyParts.join('|');
+                    if (seen.has(key)) continue;
+                    seen.add(key);
                     collectedPerfect.push({
                       assignment: assignmentByOriginal,
                       demandScores: scoresByOriginal,
                       totalTraitScore: sol.totalTraitScore || 0
                     });
-                    break; // 找到首个完美即停
                   }
-                  if (collectedPerfect.length > 0) break;
                 }
               }
               if (collectedPerfect.length > 0) {
