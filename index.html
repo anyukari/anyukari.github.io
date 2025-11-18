@@ -1796,7 +1796,20 @@
         document.querySelectorAll('.checkbox-item[data-role-index]').forEach(item => {
           const roleIndex = parseInt(item.getAttribute('data-role-index'));
           if (item.classList.contains('selected')) {
-            selectedRoles.push({ ...roles[roleIndex], index: roleIndex });
+            // 安全检查：确保索引有效且角色存在
+            if (roleIndex >= 0 && roleIndex < roles.length && roles[roleIndex]) {
+              // 验证角色名称是否匹配（防止索引不匹配）
+              const roleName = item.querySelector('label')?.textContent?.trim();
+              if (roleName && roles[roleIndex].名称 === roleName) {
+                selectedRoles.push({ ...roles[roleIndex], index: roleIndex });
+              } else {
+                // 如果名称不匹配，尝试通过名称查找正确的索引
+                const correctIndex = roles.findIndex(r => r.名称 === roleName);
+                if (correctIndex >= 0) {
+                  selectedRoles.push({ ...roles[correctIndex], index: correctIndex });
+                }
+              }
+            }
           }
         });
         return selectedRoles;
@@ -1925,8 +1938,9 @@
         }
 
         console.log(
-          `开始搜索方案：${selectedDemands.length}个需求，需要${totalRolesNeeded}个角色`
+          `开始搜索方案：${selectedDemands.length}个需求，需要${totalRolesNeeded}个角色，可用角色数：${availableRoles.length}`
         );
+        console.log('可用角色列表：', availableRoles.map(r => `${r.名称}(${r.index})`).join(', '));
 
         // 性能优化：根据需求数量设置搜索限制（适度权衡，避免长时间阻塞）
         // 支持通过 window.FMD_MAX_MS / window.FMD_MAX_SOL 临时覆盖（用于小窗口快速回溯）
