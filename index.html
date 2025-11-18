@@ -1326,10 +1326,10 @@
       // 本地存储相关函数
       function saveSelectedRoles() {
         const selectedRoles = [];
-        document.querySelectorAll('.checkbox-item[data-role-index]').forEach(item => {
-          const roleIndex = parseInt(item.getAttribute('data-role-index'));
-          if (item.classList.contains('selected')) {
-            selectedRoles.push(roleIndex);
+        document.querySelectorAll('.checkbox-item[data-role-name]').forEach(item => {
+          const roleName = item.getAttribute('data-role-name');
+          if (item.classList.contains('selected') && roleName) {
+            selectedRoles.push(roleName);
           }
         });
         localStorage.setItem('selectedRoles', JSON.stringify(selectedRoles));
@@ -1339,19 +1339,46 @@
         const saved = localStorage.getItem('selectedRoles');
         if (saved) {
           try {
-            const selectedIndices = JSON.parse(saved);
-            const selectedSet = new Set(selectedIndices);
-            document.querySelectorAll('.checkbox-item[data-role-index]').forEach(item => {
-              const roleIndex = parseInt(item.getAttribute('data-role-index'));
-              if (selectedSet.has(roleIndex)) {
-                item.classList.add('selected');
-              } else {
-                item.classList.remove('selected');
+            const savedData = JSON.parse(saved);
+            // 兼容旧数据：如果是数字数组（索引），先尝试通过索引匹配，然后迁移到名称
+            // 如果是字符串数组（名称），直接使用名称匹配
+            const isOldFormat = Array.isArray(savedData) && savedData.length > 0 && typeof savedData[0] === 'number';
+            
+            if (isOldFormat) {
+              // 旧格式：尝试通过索引匹配，同时收集名称用于迁移
+              const selectedIndices = new Set(savedData);
+              const selectedNames = [];
+              document.querySelectorAll('.checkbox-item[data-role-index]').forEach(item => {
+                const roleIndex = parseInt(item.getAttribute('data-role-index'));
+                const roleName = item.getAttribute('data-role-name');
+                if (selectedIndices.has(roleIndex)) {
+                  item.classList.add('selected');
+                  if (roleName) selectedNames.push(roleName);
+                } else {
+                  item.classList.remove('selected');
+                }
+              });
+              // 迁移到新格式（使用名称）
+              if (selectedNames.length > 0) {
+                localStorage.setItem('selectedRoles', JSON.stringify(selectedNames));
               }
-            });
-            return true;
+              return true;
+            } else {
+              // 新格式：使用名称匹配
+              const selectedNames = new Set(savedData);
+              document.querySelectorAll('.checkbox-item[data-role-name]').forEach(item => {
+                const roleName = item.getAttribute('data-role-name');
+                if (roleName && selectedNames.has(roleName)) {
+                  item.classList.add('selected');
+                } else {
+                  item.classList.remove('selected');
+                }
+              });
+              return true;
+            }
           } catch (e) {
             console.error('加载保存的角色选择失败:', e);
+            return false;
           }
         }
         return false;
@@ -1642,6 +1669,7 @@
             ];
             const roleAvatar = roleAvatarNames[0]; // 默认使用第一个
             checkboxItem.setAttribute('data-role-index', globalIndex);
+            checkboxItem.setAttribute('data-role-name', role.名称);
             checkboxItem.innerHTML = `
                       <div class="role-check-indicator"></div>
                       <div style="flex: 1;">
