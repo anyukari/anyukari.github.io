@@ -1974,10 +1974,10 @@
         // 支持通过 window.FMD_MAX_MS / window.FMD_MAX_SOL 临时覆盖（用于小窗口快速回溯）
         const maxSolutions = (window.FMD_MAX_SOL !== undefined)
           ? window.FMD_MAX_SOL
-          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 60 : 50));
+          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 80 : 50));
         const maxTimeMs = (window.FMD_MAX_MS !== undefined)
           ? window.FMD_MAX_MS
-          : (selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 4000 : 3000));
+          : (selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 5000 : 3000));
         // 如果找到足够多的完美解，可以提前终止
         const perfectSolutionThreshold = 3;
 
@@ -2070,12 +2070,35 @@
                   // 稀缺特性冗余惩罚：如果候选带有已满足且稀缺的特性，降低其排序
                   const aPenalty = (a.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
                   const bPenalty = (b.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+                  
+                  // 计算未满足的特性
+                  const unmetTraits = (demand.特性需求 || []).filter(t => !alreadySatisfiedTraits.has(t));
+                  const aUnmetCount = (a.特性 || []).filter(t => unmetTraits.includes(t)).length;
+                  const bUnmetCount = (b.特性 || []).filter(t => unmetTraits.includes(t)).length;
+                  
+                  // 优先考虑能提供未满足特性的角色（特别是稀缺特性）
+                  const aUnmetScarce = (a.特性 || []).filter(t => unmetTraits.includes(t) && scarceTraits.has(t)).length;
+                  const bUnmetScarce = (b.特性 || []).filter(t => unmetTraits.includes(t) && scarceTraits.has(t)).length;
+                  
                   const aFinal = aScore - aPenalty;
                   const bFinal = bScore - bPenalty;
-                  if (bFinal === aFinal) {
-                    return a.index - b.index;
+                  
+                  // 如果未满足特性数量不同，优先选择能提供更多未满足特性的角色
+                  if (bUnmetCount !== aUnmetCount) {
+                    return bUnmetCount - aUnmetCount;
                   }
-                  return bFinal - aFinal;
+                  
+                  // 如果未满足特性数量相同，优先选择能提供更多未满足稀缺特性的角色
+                  if (bUnmetScarce !== aUnmetScarce) {
+                    return bUnmetScarce - aUnmetScarce;
+                  }
+                  
+                  // 最后按特性匹配分数排序
+                  if (bFinal !== aFinal) {
+                    return bFinal - aFinal;
+                  }
+                  
+                  return a.index - b.index;
                 });
 
               if (candidates.length > 0) {
@@ -2271,8 +2294,9 @@
                 elapsed: Date.now() - startTime
               });
 
-              // 早停：若为小规模（≤4）且出现全完美解，直接停止进一步搜索
-              if (selectedDemands.length <= 4 && isPerfect) {
+              // 早停：若为小规模（≤2）且出现全完美解，直接停止进一步搜索
+              // 对于4个需求，继续搜索以找到多个完美解
+              if (selectedDemands.length <= 2 && isPerfect) {
                 earlyStop = true;
                 return;
               }
@@ -2312,6 +2336,14 @@
             if (candidates.length === 0) {
               return; // 没有可用角色，放弃这个分支
             }
+            
+            // 调试信息：对于需要"冒险家"的需求，检查是否包含杏子
+            if (currentDemand.特性需求 && currentDemand.特性需求.includes('冒险家') && targetJob === '辅助') {
+              const hasXingzi = candidates.some(c => c.名称 === '杏子');
+              if (hasXingzi) {
+                console.log(`需求 ${currentDemand.物品名称} 的辅助职业候选中包含杏子，当前已分配:`, (assignedRoles || []).map(r => r.名称).join(', '));
+              }
+            }
 
             // 按特性匹配度排序（加入稀缺特性冗余惩罚）
             const alreadySatisfiedTraits = new Set();
@@ -2325,21 +2357,70 @@
               const bScore = roleDemandScores[demandIndex][b.index] || 0;
               const aPenalty = (a.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
               const bPenalty = (b.特性 || []).reduce((p, t) => p + ((alreadySatisfiedTraits.has(t) && scarceTraits.has(t)) ? 0.5 : 0), 0);
+              
+              // 计算未满足的特性
+              const unmetTraits = (currentDemand.特性需求 || []).filter(t => !alreadySatisfiedTraits.has(t));
+              const aUnmetCount = (a.特性 || []).filter(t => unmetTraits.includes(t)).length;
+              const bUnmetCount = (b.特性 || []).filter(t => unmetTraits.includes(t)).length;
+              
+              // 优先考虑能提供未满足特性的角色（特别是稀缺特性）
+              const aUnmetScarce = (a.特性 || []).filter(t => unmetTraits.includes(t) && scarceTraits.has(t)).length;
+              const bUnmetScarce = (b.特性 || []).filter(t => unmetTraits.includes(t) && scarceTraits.has(t)).length;
+              
               const aFinal = aScore - aPenalty;
               const bFinal = bScore - bPenalty;
-              if (bFinal === aFinal) {
-                return a.index - b.index;
+              
+              // 如果未满足特性数量不同，优先选择能提供更多未满足特性的角色
+              if (bUnmetCount !== aUnmetCount) {
+                return bUnmetCount - aUnmetCount;
               }
-              return bFinal - aFinal;
+              
+              // 如果未满足特性数量相同，优先选择能提供更多未满足稀缺特性的角色
+              if (bUnmetScarce !== aUnmetScarce) {
+                return bUnmetScarce - aUnmetScarce;
+              }
+              
+              // 最后按特性匹配分数排序
+              if (bFinal !== aFinal) {
+                return bFinal - aFinal;
+              }
+              
+              return a.index - b.index;
             });
 
             // 优化：限制尝试次数，优先尝试特性匹配度高的角色
             // 控制分支宽度，兼顾质量与性能
+            // 对于4个需求，增加候选数量以确保充分探索
+            // 如果候选中有能提供未满足特性的角色，优先尝试更多
+            const unmetTraits = (currentDemand.特性需求 || []).filter(t => {
+              const assigned = (assignedRoles || []);
+              return !assigned.some(r => (r.特性 || []).includes(t));
+            });
+            const hasUnmetCandidates = candidates.some(c => 
+              (c.特性 || []).some(t => unmetTraits.includes(t))
+            );
             const maxCandidates = Math.min(
               candidates.length,
-              selectedDemands.length <= 2 ? 5 : (selectedDemands.length <= 4 ? 5 : 4)
+              selectedDemands.length <= 2 ? 5 : (selectedDemands.length <= 4 ? (hasUnmetCandidates ? 12 : 8) : 4)
             );
 
+            // 对于需要"冒险家"的需求，如果候选中有杏子，优先尝试包含杏子的分支
+            const unmetTraitsForPriority = (currentDemand.特性需求 || []).filter(t => {
+              const assigned = (assignedRoles || []);
+              return !assigned.some(r => (r.特性 || []).includes(t));
+            });
+            const xingziIndex = candidates.findIndex(c => c.名称 === '杏子');
+            const hasUnmetAndXingzi = unmetTraitsForPriority.includes('冒险家') && xingziIndex >= 0;
+            
+            // 如果杏子在候选列表中，且需求需要"冒险家"，优先尝试杏子
+            if (hasUnmetAndXingzi && xingziIndex > 0) {
+              // 将杏子移到前面优先尝试
+              const xingzi = candidates[xingziIndex];
+              candidates.splice(xingziIndex, 1);
+              candidates.unshift(xingzi);
+              console.log(`优先尝试杏子分配给需求 ${currentDemand.物品名称}`);
+            }
+            
             for (let i = 0; i < maxCandidates; i++) {
               const candidate = candidates[i];
               const newAssignedRoles = [...assignedRoles, candidate];
@@ -2424,6 +2505,14 @@
         });
 
         // 4. 在贪心解基础上进行回溯优化（异步执行）
+        // 添加调试信息：检查贪婪预分配结果
+        console.log('贪婪预分配结果：');
+        for (let i = 0; i < selectedDemands.length; i++) {
+          const demand = selectedDemands[i];
+          const assignedRoles = greedyResult.assignment[i];
+          console.log(`需求 ${demand.物品名称}:`, assignedRoles.map(r => r.名称).join(', '));
+        }
+        
         backtrack(
           0,
           Array(selectedDemands.length)
@@ -3120,36 +3209,10 @@
           } else {
             // 4个需求：轻量化搜索，减少卡顿（有限排列 + 时间与数量上限）
             if (selectedDemands.length === 4) {
-              // 先开启"小窗口快速回溯"：500ms内若找到首个完美解，确认存在完美解后继续收集更多
-              let hasPerfect = false;
-              try {
-                window.FMD_MAX_MS = 500;
-                window.FMD_MAX_SOL = 30;
-                const fastSols = findMultiDemandSolution(selectedDemands, selectedRoles, null) || [];
-                const fastPerfect = fastSols.find(sol => {
-                  if (!sol || !Array.isArray(sol.demandScores)) return false;
-                  for (let i = 0; i < selectedDemands.length; i++) {
-                    const score = sol.demandScores[i];
-                    const need = (selectedDemands[i].特性需求 || []).length;
-                    if (!score || !Array.isArray(score.satisfied) || score.satisfied.length !== need) {
-                      return false;
-                    }
-                  }
-                  return true;
-                });
-                if (fastPerfect) {
-                  hasPerfect = true;
-                }
-                delete window.FMD_MAX_MS;
-                delete window.FMD_MAX_SOL;
-              } catch (e) {
-                delete window.FMD_MAX_MS;
-                delete window.FMD_MAX_SOL;
-              }
               // 无论是否找到快速完美解，都继续收集多个完美解
               {
               const startTs = Date.now();
-              const maxMs = 1200;      // 最长1.2s预算
+              const maxMs = 2000;      // 最长2s预算，增加搜索时间
               const maxKeep = 5;       // 最多保留5组最优解
               const collectedPerfect = [];
               const collectedBest = [];
@@ -3193,9 +3256,9 @@
                   }
                 }
               }
-              // 若有限排列未找到足够完美解，则做一次"全排列兜底"尝试（剩余时间<=600ms，收集多个完美解）
+              // 若有限排列未找到足够完美解，则做一次"全排列兜底"尝试（剩余时间，收集多个完美解）
               if (collectedPerfect.length < maxKeep) {
-                const remainBudget = Math.max(600, maxMs - (Date.now() - startTs));
+                const remainBudget = Math.max(1000, maxMs - (Date.now() - startTs));
                 const deadline = Date.now() + remainBudget;
                 const allPerms = (function permute(arr) {
                   const out = [];
