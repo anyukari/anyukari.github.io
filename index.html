@@ -1965,10 +1965,6 @@
           return []; // 角色数量不足
         }
 
-        console.log(
-          `开始搜索方案：${selectedDemands.length}个需求，需要${totalRolesNeeded}个角色，可用角色数：${availableRoles.length}`
-        );
-        console.log('可用角色列表：', availableRoles.map(r => `${r.名称}(${r.index})`).join(', '));
 
         // 性能优化：根据需求数量设置搜索限制（适度权衡，避免长时间阻塞）
         // 支持通过 window.FMD_MAX_MS / window.FMD_MAX_SOL 临时覆盖（用于小窗口快速回溯）
@@ -2337,14 +2333,6 @@
               return; // 没有可用角色，放弃这个分支
             }
             
-            // 调试信息：对于需要"冒险家"的需求，检查是否包含杏子
-            if (currentDemand.特性需求 && currentDemand.特性需求.includes('冒险家') && targetJob === '辅助') {
-              const hasXingzi = candidates.some(c => c.名称 === '杏子');
-              if (hasXingzi) {
-                console.log(`需求 ${currentDemand.物品名称} 的辅助职业候选中包含杏子，当前已分配:`, (assignedRoles || []).map(r => r.名称).join(', '));
-              }
-            }
-
             // 按特性匹配度排序（加入稀缺特性冗余惩罚）
             const alreadySatisfiedTraits = new Set();
             (assignedRoles || []).forEach(r => {
@@ -2418,7 +2406,6 @@
               const xingzi = candidates[xingziIndex];
               candidates.splice(xingziIndex, 1);
               candidates.unshift(xingzi);
-              console.log(`优先尝试杏子分配给需求 ${currentDemand.物品名称}`);
             }
             
             for (let i = 0; i < maxCandidates; i++) {
@@ -2505,14 +2492,6 @@
         });
 
         // 4. 在贪心解基础上进行回溯优化（异步执行）
-        // 添加调试信息：检查贪婪预分配结果
-        console.log('贪婪预分配结果：');
-        for (let i = 0; i < selectedDemands.length; i++) {
-          const demand = selectedDemands[i];
-          const assignedRoles = greedyResult.assignment[i];
-          console.log(`需求 ${demand.物品名称}:`, assignedRoles.map(r => r.名称).join(', '));
-        }
-        
         backtrack(
           0,
           Array(selectedDemands.length)
