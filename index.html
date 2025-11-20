@@ -1949,12 +1949,15 @@
 
       // 改进的全局特性平衡优化算法
       function findMultiDemandSolution(selectedDemands, availableRoles, progressCallback) {
+        console.log(`[findMultiDemandSolution] 开始执行，需求数量: ${selectedDemands.length}, 角色数量: ${availableRoles.length}`);
         const totalRolesNeeded = selectedDemands.reduce(
           (sum, demand) => sum + demand.职业需求.length,
           0
         );
+        console.log(`[findMultiDemandSolution] 需要角色总数: ${totalRolesNeeded}`);
 
         if (availableRoles.length < totalRolesNeeded) {
+          console.log(`[findMultiDemandSolution] 角色数量不足，返回空数组`);
           return []; // 角色数量不足
         }
 
@@ -1964,7 +1967,7 @@
         // 增加限制以确保在角色数量较多时也能找到完美解
         const maxSolutions = (window.FMD_MAX_SOL !== undefined)
           ? window.FMD_MAX_SOL
-          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 120 : 80));
+          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 150 : 220));
         const maxTimeMs = (window.FMD_MAX_MS !== undefined)
           ? window.FMD_MAX_MS
           : (selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 8000 : 5000));
@@ -2298,6 +2301,20 @@
                 }
               if (improved) break;
             }
+          }
+
+          // 重新计算所有需求的特性匹配分数，确保 demandScores 与 assignment 同步
+          solution.demandScores = [];
+          solution.totalTraitScore = 0;
+          for (let i = 0; i < selectedDemands.length; i++) {
+            const demand = selectedDemands[i];
+            const assignedRoles = solution.assignment[i];
+            const traitScore = calculateDemandTraitScore(
+              assignedRoles,
+              demand.特性需求
+            );
+            solution.demandScores.push(traitScore);
+            solution.totalTraitScore += traitScore.score;
           }
 
           return solution;
@@ -2643,8 +2660,11 @@
           totalTime: Date.now() - startTime
         });
 
+        console.log(`[findMultiDemandSolution] 完成，找到 ${uniqueSolutions.length} 个唯一方案，返回前5个`);
         // 返回前5个最佳方案
-        return uniqueSolutions.slice(0, 5);
+        const result = uniqueSolutions.slice(0, 5);
+        console.log(`[findMultiDemandSolution] 返回 ${result.length} 个方案`);
+        return result;
       }
 
       // 主匹配函数
@@ -2921,13 +2941,34 @@
 
         // 为多个需求寻找最佳匹配方案（使用setTimeout确保UI有时间更新）
         let solutions = [];
+        console.log('=== 开始匹配 ===');
+        console.log(`需求数量: ${selectedDemands.length}, 角色数量: ${selectedRoles.length}`);
         setTimeout(() => {
-          // 立即更新进度，显示开始计算
-          progressCallback('start', '开始计算匹配方案...', { progress: 10 });
+          try {
+            console.log('setTimeout 回调函数开始执行...');
+            // 立即更新进度，显示开始计算
+            if (progressCallback) {
+              progressCallback('start', '开始计算匹配方案...', { progress: 10 });
+            }
+            console.log('开始执行匹配算法...');
+            console.log(`selectedDemandIndicesOrdered.length: ${selectedDemandIndicesOrdered.length}`);
+            console.log(`selectedDemands.length: ${selectedDemands.length}`);
+            console.log(`typeof demands: ${typeof demands}`);
           
-          // 若恰好选择了5个需求：先保证前四的最佳方案；第5为切换方案，不影响第4
-          if (selectedDemandIndicesOrdered.length === 5) {
-            const orderedDemands = selectedDemandIndicesOrdered.map(idx => ({ ...demands[idx], index: idx }));
+            // 若恰好选择了5个需求：先保证前四的最佳方案；第5为切换方案，不影响第4
+            if (selectedDemandIndicesOrdered.length === 5) {
+              console.log('进入5个需求的处理分支...');
+              console.log('处理5个需求的情况...');
+              const orderedDemands = selectedDemandIndicesOrdered.map(idx => {
+                // selectedDemandIndicesOrdered 中的 idx 是 demands 数组的索引
+                const demand = demands[idx];
+                if (!demand) {
+                  console.error(`找不到索引 ${idx} 对应的需求`);
+                  return null;
+                }
+                return { ...demand, index: idx };
+              }).filter(d => d !== null);
+              console.log(`orderedDemands 长度: ${orderedDemands.length}`);
             const firstThree = orderedDemands.slice(0, 3);
             const demandFour = orderedDemands[3];
             const demandFive = orderedDemands[4];
@@ -2935,8 +2976,22 @@
             // 同时考虑两种顺序：(前三+第4) 与 (前三+第5)
             const fourOrderA = [...firstThree, demandFour]; // 第4为当前
             const fourOrderB = [...firstThree, demandFive]; // 第5为当前
-            const solsA = findMultiDemandSolution(fourOrderA, selectedRoles, null) || [];
-            const solsB = findMultiDemandSolution(fourOrderB, selectedRoles, null) || [];
+            console.log('准备调用 findMultiDemandSolution for fourOrderA...');
+            let solsA = [];
+            try {
+              solsA = findMultiDemandSolution(fourOrderA, selectedRoles, null) || [];
+              console.log(`findMultiDemandSolution for fourOrderA 完成，找到 ${solsA.length} 个方案`);
+            } catch (e) {
+              console.error('findMultiDemandSolution for fourOrderA 出错:', e);
+            }
+            console.log('准备调用 findMultiDemandSolution for fourOrderB...');
+            let solsB = [];
+            try {
+              solsB = findMultiDemandSolution(fourOrderB, selectedRoles, null) || [];
+              console.log(`findMultiDemandSolution for fourOrderB 完成，找到 ${solsB.length} 个方案`);
+            } catch (e) {
+              console.error('findMultiDemandSolution for fourOrderB 出错:', e);
+            }
             
             // 选择优先顺序：优先找到“当前四完美 + 备用也能完美”的组合；若两者都满足则都展示；否则选择第4优先（A），再到B
             const candidates = [];
@@ -2947,9 +3002,16 @@
               candidates.push({ tag: 'B', four: solsB[0], fourArr: fourOrderB });
             }
             
-            // 评估每个候选的“切换完美性”
+            // 评估每个候选的"切换完美性"
             function evalSwitchCandidate(candidate) {
-              const isFourPerfect = isPerfectSolutionForDemands(candidate.four, candidate.fourArr);
+              console.log(`[evalSwitchCandidate] 开始评估候选方案 ${candidate.tag}`);
+              let isFourPerfect = false;
+              try {
+                isFourPerfect = isPerfectSolutionForDemands(candidate.four, candidate.fourArr);
+                console.log(`[evalSwitchCandidate] 候选方案 ${candidate.tag} 的四需求完美性: ${isFourPerfect}`);
+              } catch (e) {
+                console.error(`[evalSwitchCandidate] 检查四需求完美性时出错:`, e);
+              }
               // 计算备用需求的完美（排除前三）
               const usedByFirstThree = new Set();
               for (let i = 0; i < 3; i++) {
@@ -2957,42 +3019,83 @@
                 rolesList.forEach(r => usedByFirstThree.add(r.index));
               }
               const remainRoles = selectedRoles.filter(r => !usedByFirstThree.has(r.index));
+              console.log(`[evalSwitchCandidate] 候选方案 ${candidate.tag} 剩余角色数: ${remainRoles.length}`);
               if (candidate.tag === 'A') {
-                const sol5 = findMultiDemandSolution([demandFive], remainRoles, null) || [];
+                console.log(`[evalSwitchCandidate] 评估A方案，剩余角色数: ${remainRoles.length}，需求: demandFive`);
+                let sol5 = [];
+                try {
+                  sol5 = findMultiDemandSolution([demandFive], remainRoles, null) || [];
+                  console.log(`[evalSwitchCandidate] A方案评估完成，找到 ${sol5.length} 个方案`);
+                } catch (e) {
+                  console.error('[evalSwitchCandidate] A方案评估出错:', e);
+                }
                 const five = sol5.length ? sol5[0] : null;
-                const isFivePerfect = five ? isPerfectSolutionForDemands(five, [demandFive]) : false;
+                let isFivePerfect = false;
+                try {
+                  isFivePerfect = five ? isPerfectSolutionForDemands(five, [demandFive]) : false;
+                  console.log(`[evalSwitchCandidate] A方案的第五需求完美性: ${isFivePerfect}`);
+                } catch (e) {
+                  console.error('[evalSwitchCandidate] 检查第五需求完美性时出错:', e);
+                }
                 return { isFourPerfect, isOtherPerfect: isFivePerfect, other: five };
               } else {
-                const sol4 = findMultiDemandSolution([demandFour], remainRoles, null) || [];
+                console.log(`[evalSwitchCandidate] 评估B方案，剩余角色数: ${remainRoles.length}，需求: demandFour`);
+                let sol4 = [];
+                try {
+                  sol4 = findMultiDemandSolution([demandFour], remainRoles, null) || [];
+                  console.log(`[evalSwitchCandidate] B方案评估完成，找到 ${sol4.length} 个方案`);
+                } catch (e) {
+                  console.error('[evalSwitchCandidate] B方案评估出错:', e);
+                }
                 const four = sol4.length ? sol4[0] : null;
-                const isOtherPerfect = four ? isPerfectSolutionForDemands(four, [demandFour]) : false;
+                let isOtherPerfect = false;
+                try {
+                  isOtherPerfect = four ? isPerfectSolutionForDemands(four, [demandFour]) : false;
+                  console.log(`[evalSwitchCandidate] B方案的第四需求完美性: ${isOtherPerfect}`);
+                } catch (e) {
+                  console.error('[evalSwitchCandidate] 检查第四需求完美性时出错:', e);
+                }
                 return { isFourPerfect, isOtherPerfect, other: four };
               }
             }
             
-            const evaluated = candidates.map(c => {
-              const res = evalSwitchCandidate(c);
-              return { ...c, ...res };
+            console.log(`[5需求处理] 开始评估候选方案，candidates数量: ${candidates.length}`);
+            const evaluated = candidates.map((c, idx) => {
+              console.log(`[5需求处理] 评估候选方案 ${idx + 1}/${candidates.length}, tag: ${c.tag}`);
+              try {
+                const res = evalSwitchCandidate(c);
+                console.log(`[5需求处理] 候选方案 ${c.tag} 评估完成: isFourPerfect=${res.isFourPerfect}, isOtherPerfect=${res.isOtherPerfect}`);
+                return { ...c, ...res };
+              } catch (e) {
+                console.error(`[5需求处理] 候选方案 ${c.tag} 评估出错:`, e);
+                return { ...c, isFourPerfect: false, isOtherPerfect: false, other: null };
+              }
             });
+            console.log(`[5需求处理] 评估完成，evaluated数量: ${evaluated.length}`);
             
-            // 优先选择“四完美 & 备用完美”的；若存在任意双完美方案，只展示双完美方案（不展示不完美方案）
+            // 优先选择"四完美 & 备用完美"的；若存在任意双完美方案，只展示双完美方案（不展示不完美方案）
             const bothPerfect = evaluated.filter(e => e.isFourPerfect && e.isOtherPerfect);
+            console.log(`[5需求处理] 双完美方案数量: ${bothPerfect.length}`);
             const showList = [];
             if (bothPerfect.length > 0) {
+              console.log(`[5需求处理] 找到双完美方案，筛选展示列表...`);
               // 只展示双完美解（最多两组：A与B）
               const pickA_both = bothPerfect.find(e => e.tag === 'A');
               const pickB_both = bothPerfect.find(e => e.tag === 'B');
               if (pickA_both) showList.push(pickA_both);
               if (pickB_both) showList.push(pickB_both);
             } else {
+              console.log(`[5需求处理] 无双完美方案，筛选展示列表...`);
               // 无双完美时，仍然优先展示A（四完美优先于非完美），其次B
               const hasA = evaluated.find(e => e.tag === 'A' && e.isFourPerfect) || evaluated.find(e => e.tag === 'A');
               const hasB = evaluated.find(e => e.tag === 'B' && e.isFourPerfect) || evaluated.find(e => e.tag === 'B');
               if (hasA) showList.push(hasA);
               if (hasB) showList.push(hasB);
             }
+            console.log(`[5需求处理] showList长度: ${showList.length}`);
             
             if (showList.length > 0) {
+              console.log(`[5需求处理] 开始渲染方案...`);
               // 移除进度容器
               const progressContainerEl = document.getElementById('progress-container');
               if (progressContainerEl) {
@@ -3144,11 +3247,166 @@
                 resultsContainer.appendChild(combinedDiv);
               });
               updateBackToTopButton();
+              
+              // 输出诊断信息
+              if (uniqueToRender.length > 0) {
+                const firstChoice = uniqueToRender[0];
+                const chosenFour = firstChoice.four;
+                const permUsed = firstChoice.tag === 'A' ? fourOrderA : fourOrderB;
+                const posMap = new Map();
+                for (let p = 0; p < permUsed.length; p++) posMap.set(permUsed[p].index, p);
+                
+                console.log('=== 方案诊断信息 ===');
+                // 输出前三个需求
+                for (let i = 0; i < 3; i++) {
+                  const d = firstThree[i];
+                  const pos = posMap.get(d.index);
+                  const assignedRoles = chosenFour.assignment[pos] || [];
+                  const traitScore = chosenFour.demandScores[pos];
+                  const satisfied = traitScore.satisfied || [];
+                  const unsatisfied = traitScore.unsatisfied || [];
+                  const required = d.特性需求 || [];
+                  const isPerfect = satisfied.length === required.length;
+                  console.log(`${d.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+                  console.log(`  职业需求: ${d.职业需求.join('、')}`);
+                  console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+                  // 显示每个角色的详细特性信息
+                  assignedRoles.forEach((role, idx) => {
+                    const roleTraits = role.特性 || [];
+                    const matchedTraits = roleTraits.filter(t => required.includes(t));
+                    console.log(`    角色${idx + 1}: ${role.名称}(${role.职业}), 特性[${roleTraits.join('、') || '无'}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                  });
+                  // 重新计算特性匹配以验证
+                  const recalculated = calculateDemandTraitScore(assignedRoles, required);
+                  console.log(`  重新计算: 已满足[${recalculated.satisfied.join('、') || '无'}], 缺少[${recalculated.unsatisfied.join('、') || '无'}]`);
+                  if (satisfied.length > 0) {
+                    console.log(`  已满足特性: ${satisfied.join('、')}`);
+                  }
+                  if (unsatisfied.length > 0) {
+                    console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                  }
+                }
+                // 输出第4个需求
+                if (firstChoice.tag === 'A') {
+                  const pos4 = posMap.get(demandFour.index);
+                  const assignedRoles = chosenFour.assignment[pos4] || [];
+                  const traitScore = chosenFour.demandScores[pos4];
+                  const satisfied = traitScore.satisfied || [];
+                  const unsatisfied = traitScore.unsatisfied || [];
+                  const required = demandFour.特性需求 || [];
+                  const isPerfect = satisfied.length === required.length;
+                  console.log(`${demandFour.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+                  console.log(`  职业需求: ${demandFour.职业需求.join('、')}`);
+                  console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+                  // 显示每个角色的详细特性信息
+                  assignedRoles.forEach((role, idx) => {
+                    const roleTraits = role.特性 || [];
+                    const matchedTraits = roleTraits.filter(t => required.includes(t));
+                    console.log(`    角色${idx + 1}: ${role.名称}(${role.职业}), 特性[${roleTraits.join('、') || '无'}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                  });
+                  // 重新计算特性匹配以验证
+                  const recalculated = calculateDemandTraitScore(assignedRoles, required);
+                  console.log(`  重新计算: 已满足[${recalculated.satisfied.join('、') || '无'}], 缺少[${recalculated.unsatisfied.join('、') || '无'}]`);
+                  if (satisfied.length > 0) {
+                    console.log(`  已满足特性: ${satisfied.join('、')}`);
+                  }
+                  if (unsatisfied.length > 0) {
+                    console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                  }
+                } else {
+                  if (firstChoice.other) {
+                    const assignedRoles = firstChoice.other.assignment[0] || [];
+                    const traitScore = firstChoice.other.demandScores[0];
+                    const satisfied = traitScore.satisfied || [];
+                    const unsatisfied = traitScore.unsatisfied || [];
+                    const required = demandFour.特性需求 || [];
+                    const isPerfect = satisfied.length === required.length;
+                    console.log(`${demandFour.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+                    console.log(`  职业需求: ${demandFour.职业需求.join('、')}`);
+                    console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+                    // 显示每个角色的详细特性信息
+                    assignedRoles.forEach((role, idx) => {
+                      const roleTraits = role.特性 || [];
+                      const matchedTraits = roleTraits.filter(t => required.includes(t));
+                      console.log(`    角色${idx + 1}: ${role.名称}(${role.职业}), 特性[${roleTraits.join('、') || '无'}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                    });
+                    // 重新计算特性匹配以验证
+                    const recalculated = calculateDemandTraitScore(assignedRoles, required);
+                    console.log(`  重新计算: 已满足[${recalculated.satisfied.join('、') || '无'}], 缺少[${recalculated.unsatisfied.join('、') || '无'}]`);
+                    if (satisfied.length > 0) {
+                      console.log(`  已满足特性: ${satisfied.join('、')}`);
+                    }
+                    if (unsatisfied.length > 0) {
+                      console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                    }
+                  }
+                }
+                // 输出第5个需求
+                if (firstChoice.tag === 'A') {
+                  if (firstChoice.other) {
+                    const assignedRoles = firstChoice.other.assignment[0] || [];
+                    const traitScore = firstChoice.other.demandScores[0];
+                    const satisfied = traitScore.satisfied || [];
+                    const unsatisfied = traitScore.unsatisfied || [];
+                    const required = demandFive.特性需求 || [];
+                    const isPerfect = satisfied.length === required.length;
+                    console.log(`${demandFive.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+                    console.log(`  职业需求: ${demandFive.职业需求.join('、')}`);
+                    console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+                    // 显示每个角色的详细特性信息
+                    assignedRoles.forEach((role, idx) => {
+                      const roleTraits = role.特性 || [];
+                      const matchedTraits = roleTraits.filter(t => required.includes(t));
+                      console.log(`    角色${idx + 1}: ${role.名称}(${role.职业}), 特性[${roleTraits.join('、') || '无'}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                    });
+                    // 重新计算特性匹配以验证
+                    const recalculated = calculateDemandTraitScore(assignedRoles, required);
+                    console.log(`  重新计算: 已满足[${recalculated.satisfied.join('、') || '无'}], 缺少[${recalculated.unsatisfied.join('、') || '无'}]`);
+                    if (satisfied.length > 0) {
+                      console.log(`  已满足特性: ${satisfied.join('、')}`);
+                    }
+                    if (unsatisfied.length > 0) {
+                      console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                    }
+                  }
+                } else {
+                  const pos5 = posMap.get(demandFive.index);
+                  const assignedRoles = chosenFour.assignment[pos5] || [];
+                  const traitScore = chosenFour.demandScores[pos5];
+                  const satisfied = traitScore.satisfied || [];
+                  const unsatisfied = traitScore.unsatisfied || [];
+                  const required = demandFive.特性需求 || [];
+                  const isPerfect = satisfied.length === required.length;
+                  console.log(`${demandFive.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+                  console.log(`  职业需求: ${demandFive.职业需求.join('、')}`);
+                  console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+                  // 显示每个角色的详细特性信息
+                  assignedRoles.forEach((role, idx) => {
+                    const roleTraits = role.特性 || [];
+                    const matchedTraits = roleTraits.filter(t => required.includes(t));
+                    console.log(`    角色${idx + 1}: ${role.名称}(${role.职业}), 特性[${roleTraits.join('、') || '无'}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                  });
+                  // 重新计算特性匹配以验证
+                  const recalculated = calculateDemandTraitScore(assignedRoles, required);
+                  console.log(`  重新计算: 已满足[${recalculated.satisfied.join('、') || '无'}], 缺少[${recalculated.unsatisfied.join('、') || '无'}]`);
+                  if (satisfied.length > 0) {
+                    console.log(`  已满足特性: ${satisfied.join('、')}`);
+                  }
+                  if (unsatisfied.length > 0) {
+                    console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                  }
+                }
+                console.log('==================');
+              }
+              
+              console.log(`[5需求处理] 方案渲染完成，返回`);
               return;
             }
 
-            // 不存在可切换完美解，回退到原有“前三固定+第4优先”的方案（告知无法切换完美）
+            // 不存在可切换完美解，回退到原有"前三固定+第4优先"的方案（告知无法切换完美）
+            console.log(`[5需求处理] showList为空，回退到前三固定方案...`);
             const solsForFirstThree = findMultiDemandSolution(firstThree, selectedRoles, progressCallback) || [];
+            console.log(`[5需求处理] 前三固定方案找到 ${solsForFirstThree.length} 个方案`);
 
             // 移除进度容器
             const progressContainerEl = document.getElementById('progress-container');
@@ -3336,7 +3594,7 @@
             // 4个需求：轻量化搜索，减少卡顿（有限排列 + 时间与数量上限）
             if (selectedDemands.length === 4) {
               // 无论是否找到快速完美解，都继续收集多个完美解
-              {
+              (function() {
               const startTs = Date.now();
               const maxMs = 2000;      // 最长2s预算，增加搜索时间
               const maxKeep = 5;       // 最多保留5组最优解
@@ -3443,16 +3701,24 @@
                 }
                 solutions = picked;
               }
-              }
+              })();
             } else {
+              console.log('执行 findMultiDemandSolution...');
               solutions = findMultiDemandSolution(
                 selectedDemands,
                 selectedRoles,
                 progressCallback
               );
+              console.log(`findMultiDemandSolution 返回 ${solutions ? solutions.length : 'null/undefined'} 个方案`);
             }
+          } // 关闭 if (selectedDemandIndicesOrdered.length === 5) 的 else 分支
+          } catch (error) {
+            console.error('匹配过程中发生错误:', error);
+            console.error('错误堆栈:', error.stack);
+            solutions = [];
           }
 
+          console.log('setTimeout 回调函数执行完成，准备输出诊断信息...');
           // 移除进度容器
           const progressContainerEl = document.getElementById('progress-container');
           if (progressContainerEl) {
@@ -3461,8 +3727,27 @@
           
           resultsContainer.innerHTML = "";
 
+          // 调试：输出找到的方案数量
+          console.log(`=== 匹配完成 ===`);
+          console.log(`solutions 类型: ${typeof solutions}, 是数组: ${Array.isArray(solutions)}`);
+          if (solutions === undefined || solutions === null) {
+            console.error('solutions 是 undefined 或 null!');
+            solutions = [];
+          }
+          console.log(`找到 ${solutions.length} 个方案`);
+          if (solutions.length > 0) {
+            console.log(`第一个方案的分配情况:`);
+            solutions[0].assignment.forEach((roles, idx) => {
+              console.log(`  需求${idx}: ${selectedDemands[idx]?.物品名称 || '未知'} - 分配角色: ${roles.map(r => r.名称).join('、')}`);
+            });
+          } else {
+            console.log('未找到任何方案');
+          }
+
           if (solutions.length === 0) {
-            // 构造“最优近似方案”：在角色不足或组合无法完美时也输出一个尽量好的结果
+            console.log('=== 方案诊断信息 ===');
+            console.log('未找到任何方案，正在构造最优近似方案...');
+            // 构造"最优近似方案"：在角色不足或组合无法完美时也输出一个尽量好的结果
             function buildBestEffortSolution(demandsArr, rolesArr) {
               // 复制一份可用角色
               const available = rolesArr.slice();
@@ -3571,6 +3856,50 @@
             solutionDiv.innerHTML += solutionHTML;
             resultsContainer.innerHTML = '';
             resultsContainer.appendChild(solutionDiv);
+            
+            // 输出最优近似方案的诊断信息
+            console.log('=== 方案诊断信息（最优近似方案）===');
+            selectedDemands.forEach((demand, demandIndex) => {
+              const assignedRoles = bestEffort.assignment[demandIndex] || [];
+              const traitScore = bestEffort.demandScores[demandIndex];
+              const satisfied = traitScore.satisfied || [];
+              const unsatisfied = traitScore.unsatisfied || [];
+              const required = demand.特性需求 || [];
+              const isPerfect = satisfied.length === required.length;
+              console.log(`${demand.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+              console.log(`  职业需求: ${demand.职业需求.join('、')}`);
+              console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+              // 显示每个角色提供的特性
+              assignedRoles.forEach((role, idx) => {
+                const roleTraits = role.特性 || [];
+                const matchedTraits = roleTraits.filter(t => required.includes(t));
+                console.log(`    ${role.名称}(${role.职业}): 特性[${roleTraits.join('、')}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                // 调试信息：显示特性字段的类型和原始值
+                if (role.特性) {
+                  console.log(`      调试: 特性类型=${typeof role.特性}, 是数组=${Array.isArray(role.特性)}, 值=${JSON.stringify(role.特性)}`);
+                } else {
+                  console.log(`      调试: 特性字段不存在或为undefined`);
+                }
+              });
+              // 调试信息：显示特性匹配计算的详细过程
+              console.log(`  调试: 需求特性=${JSON.stringify(required)}`);
+              const allTraits = new Set();
+              assignedRoles.forEach(role => {
+                (role.特性 || []).forEach(t => allTraits.add(t));
+              });
+              console.log(`  调试: 所有分配角色的特性=${JSON.stringify(Array.from(allTraits))}`);
+              const calculatedScore = calculateDemandTraitScore(assignedRoles, required);
+              console.log(`  调试: 计算得到的已满足特性=${JSON.stringify(calculatedScore.satisfied)}`);
+              console.log(`  调试: 计算得到的缺少特性=${JSON.stringify(calculatedScore.unsatisfied)}`);
+              if (satisfied.length > 0) {
+                console.log(`  已满足特性: ${satisfied.join('、')}`);
+              }
+              if (unsatisfied.length > 0) {
+                console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+              }
+            });
+            console.log('==================');
+            
             if (bestEffortIsPerfect) {
               showMessage('已找到完美解', 'success');
             } else {
@@ -3614,6 +3943,28 @@
               console.log(`${demand.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
               console.log(`  职业需求: ${demand.职业需求.join('、')}`);
               console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+              // 显示每个角色提供的特性
+              assignedRoles.forEach((role, idx) => {
+                const roleTraits = role.特性 || [];
+                const matchedTraits = roleTraits.filter(t => required.includes(t));
+                console.log(`    ${role.名称}(${role.职业}): 特性[${roleTraits.join('、')}], 匹配[${matchedTraits.join('、') || '无'}]`);
+                // 调试信息：显示特性字段的类型和原始值
+                if (role.特性) {
+                  console.log(`      调试: 特性类型=${typeof role.特性}, 是数组=${Array.isArray(role.特性)}, 值=${JSON.stringify(role.特性)}`);
+                } else {
+                  console.log(`      调试: 特性字段不存在或为undefined`);
+                }
+              });
+              // 调试信息：显示特性匹配计算的详细过程
+              console.log(`  调试: 需求特性=${JSON.stringify(required)}`);
+              const allTraits = new Set();
+              assignedRoles.forEach(role => {
+                (role.特性 || []).forEach(t => allTraits.add(t));
+              });
+              console.log(`  调试: 所有分配角色的特性=${JSON.stringify(Array.from(allTraits))}`);
+              const calculatedScore = calculateDemandTraitScore(assignedRoles, required);
+              console.log(`  调试: 计算得到的已满足特性=${JSON.stringify(calculatedScore.satisfied)}`);
+              console.log(`  调试: 计算得到的缺少特性=${JSON.stringify(calculatedScore.unsatisfied)}`);
               if (satisfied.length > 0) {
                 console.log(`  已满足特性: ${satisfied.join('、')}`);
               }
