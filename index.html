@@ -2265,8 +2265,8 @@
             // 应用特性交换优化
             const optimizedSolution = optimizeTraitExchange(solution);
 
-            // 只保存比贪心结果更好的方案
-            if (optimizedSolution.totalTraitScore > improvedScore) {
+            // 保存比贪心结果更好或相等的方案（允许保存同样完美的解）
+            if (optimizedSolution.totalTraitScore >= improvedScore) {
               solutions.push(optimizedSolution);
               solutionCount++;
               
@@ -2387,9 +2387,10 @@
             const hasUnmetCandidates = candidates.some(c => 
               (c.特性 || []).some(t => unmetTraits.includes(t))
             );
+            // 对于4个需求，增加候选数量以确保充分探索所有可能的完美解
             const maxCandidates = Math.min(
               candidates.length,
-              selectedDemands.length <= 2 ? 5 : (selectedDemands.length <= 4 ? (hasUnmetCandidates ? 12 : 8) : 4)
+              selectedDemands.length <= 2 ? 5 : (selectedDemands.length <= 4 ? (hasUnmetCandidates ? candidates.length : 12) : 4)
             );
 
             // 对于需要"冒险家"的需求，如果候选中有杏子，优先尝试包含杏子的分支
