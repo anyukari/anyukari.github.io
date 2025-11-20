@@ -1570,16 +1570,12 @@
 
       // 初始化页面
       function initializePage() {
-        console.log("开始初始化页面...");
-        console.log("角色数量:", roles.length);
-        
         // 初始化角色选择 - 按属性分组显示（类似需求选择）
         const rolesContainer = document.getElementById("roles-container");
         if (!rolesContainer) {
           console.error("找不到 roles-container 元素");
           return;
         }
-        console.log("找到 roles-container 元素");
         
         // 清空容器
         rolesContainer.innerHTML = "";
@@ -1650,7 +1646,6 @@
           
           // 获取该属性的所有角色
           const attrRoles = roles.filter(r => r.属性 === attribute);
-          console.log(`${attribute} 属性角色数量:`, attrRoles.length);
           
           attrRoles.forEach((role, roleIndex) => {
             const globalIndex = roles.indexOf(role);
@@ -1704,10 +1699,8 @@
           
           // 即使没有角色也添加容器（显示标题）
           rolesContainer.appendChild(attributeContainer);
-          console.log(`已添加 ${attribute} 属性容器，包含 ${attrRoles.length} 个角色`);
         });
         
-        console.log("角色初始化完成，容器子元素数量:", rolesContainer.children.length);
 
         // 加载保存的角色选择，如果没有保存则默认全选
         const hasSaved = loadSelectedRoles();
@@ -2120,15 +2113,78 @@
             iterations++;
             
             // 如果已经找到完美解，提前终止
-            const isPerfect = solution.demandScores.every(
+            const allPerfect = solution.demandScores.every(
               (score, idx) => score.satisfied.length === selectedDemands[idx].特性需求.length
             );
-            if (isPerfect) {
+            if (allPerfect) {
               break;
             }
+            
+            // 尝试释放冗余角色：如果一个需求已经有某个特性，尝试用其他角色替换提供该特性的角色
+            // 这样可以释放提供该特性的角色给其他需要它的需求
+            for (let i = 0; i < selectedDemands.length; i++) {
+              const demand = selectedDemands[i];
+              const assignedRoles = solution.assignment[i];
+              const traitScore = calculateDemandTraitScore(assignedRoles, demand.特性需求);
+              const satisfiedTraits = new Set(traitScore.satisfied);
+              
+              // 对于每个已满足的特性，检查是否可以释放提供该特性的角色
+              for (const trait of satisfiedTraits) {
+                const providers = assignedRoles.filter(r => (r.特性 || []).includes(trait));
+                
+                // 对于每个提供该特性的角色，尝试用其他角色替换它
+                for (let pi = 0; pi < providers.length; pi++) {
+                  const provider = providers[pi];
+                  const providerIndex = assignedRoles.indexOf(provider);
+                  const requiredJob = demand.职业需求[providerIndex];
+                  
+                  // 尝试从其他需求中找到可以替换的角色（同职业，但不提供该特性）
+                  for (let j = 0; j < selectedDemands.length; j++) {
+                    if (i === j) continue;
+                    const otherDemand = selectedDemands[j];
+                    const otherRoles = solution.assignment[j];
+                    const otherTraitScore = calculateDemandTraitScore(otherRoles, otherDemand.特性需求);
+                    const otherUnmetTraits = otherTraitScore.unsatisfied;
+                    
+                    // 如果其他需求缺少这个特性，尝试交换
+                    if (otherUnmetTraits.includes(trait)) {
+                      // 在其他需求中寻找可以交换的角色（同职业）
+                      for (let oj = 0; oj < otherRoles.length; oj++) {
+                        const otherRole = otherRoles[oj];
+                        if (otherRole.职业 === requiredJob) {
+                          // 检查交换后是否仍然满足需求
+                          const newRolesI = [...assignedRoles];
+                          const newRolesJ = [...otherRoles];
+                          newRolesI[providerIndex] = otherRole;
+                          newRolesJ[oj] = provider;
+                          
+                          const newScoreI = calculateDemandTraitScore(newRolesI, demand.特性需求);
+                          const newScoreJ = calculateDemandTraitScore(newRolesJ, otherDemand.特性需求);
+                          
+                          // 如果交换后当前需求仍然满足所有特性，且其他需求变得更好，执行交换
+                          if (newScoreI.satisfied.length === demand.特性需求.length && newScoreJ.score > otherTraitScore.score) {
+                            solution.assignment[i] = newRolesI;
+                            solution.assignment[j] = newRolesJ;
+                            improved = true;
+                            break;
+                          }
+                        }
+                      }
+                      if (improved) break;
+                    }
+                  }
+                  if (improved) break;
+                }
+                if (improved) break;
+              }
+              if (improved) break;
+            }
+            
+            if (improved) continue; // 如果通过释放冗余角色找到了改进，继续下一轮迭代
 
             // 计算当前每个需求的未满足特性
             const unmetTraits = [];
+            const demandPerfectStatus = [];
             for (let i = 0; i < selectedDemands.length; i++) {
               const demand = selectedDemands[i];
               const assignedRoles = solution.assignment[i];
@@ -2137,17 +2193,47 @@
                 demand.特性需求
               );
               unmetTraits[i] = traitScore.unsatisfied;
+              demandPerfectStatus[i] = traitScore.satisfied.length === demand.特性需求.length;
+            }
+
+            // 优先尝试让不完美的需求变完美
+            // 先尝试不完美需求之间的交换，再尝试完美需求与不完美需求之间的交换
+            const imperfectIndices = [];
+            const perfectIndices = [];
+            for (let i = 0; i < selectedDemands.length; i++) {
+              if (demandPerfectStatus[i]) {
+                perfectIndices.push(i);
+              } else {
+                imperfectIndices.push(i);
+              }
+            }
+            
+            // 生成交换顺序：优先不完美需求之间，然后不完美与完美之间
+            const swapOrder = [];
+            for (let i = 0; i < imperfectIndices.length; i++) {
+              for (let j = i + 1; j < imperfectIndices.length; j++) {
+                swapOrder.push([imperfectIndices[i], imperfectIndices[j]]);
+              }
+            }
+            for (let i = 0; i < imperfectIndices.length; i++) {
+              for (let j = 0; j < perfectIndices.length; j++) {
+                swapOrder.push([imperfectIndices[i], perfectIndices[j]]);
+              }
+            }
+            for (let i = 0; i < perfectIndices.length; i++) {
+              for (let j = i + 1; j < perfectIndices.length; j++) {
+                swapOrder.push([perfectIndices[i], perfectIndices[j]]);
+              }
             }
 
             // 尝试所有可能的角色交换
-            for (let i = 0; i < selectedDemands.length; i++) {
-              for (let j = 0; j < selectedDemands.length; j++) {
-                if (i === j) continue;
+            for (const [idxI, idxJ] of swapOrder) {
+              if (idxI === idxJ) continue;
 
-                const demandI = selectedDemands[i];
-                const demandJ = selectedDemands[j];
-                const rolesI = solution.assignment[i];
-                const rolesJ = solution.assignment[j];
+                const demandI = selectedDemands[idxI];
+                const demandJ = selectedDemands[idxJ];
+                const rolesI = solution.assignment[idxI];
+                const rolesJ = solution.assignment[idxJ];
 
                 // 尝试交换角色
                 for (let ri = 0; ri < rolesI.length; ri++) {
@@ -2190,22 +2276,25 @@
                       demandJ.特性需求
                     ).score;
                     const afterTotal = afterScoreI + afterScoreJ;
+                    
+                    // 检查是否让更多需求变完美
+                    const beforePerfectI = beforeScoreI === demandI.特性需求.length;
+                    const beforePerfectJ = beforeScoreJ === demandJ.特性需求.length;
+                    const afterPerfectI = afterScoreI === demandI.特性需求.length;
+                    const afterPerfectJ = afterScoreJ === demandJ.特性需求.length;
+                    const beforePerfectCount = (beforePerfectI ? 1 : 0) + (beforePerfectJ ? 1 : 0);
+                    const afterPerfectCount = (afterPerfectI ? 1 : 0) + (afterPerfectJ ? 1 : 0);
 
-                    // 如果交换能提高总特性匹配分数，则执行交换
-                    if (afterTotal > beforeTotal) {
-                      solution.assignment[i] = newRolesI;
-                      solution.assignment[j] = newRolesJ;
+                    // 如果交换能提高总特性匹配分数，或者让更多需求变完美，则执行交换
+                    if (afterTotal > beforeTotal || (afterPerfectCount > beforePerfectCount && afterTotal >= beforeTotal)) {
+                      solution.assignment[idxI] = newRolesI;
+                      solution.assignment[idxJ] = newRolesJ;
                       improved = true;
-                      console.log(
-                        `交换角色：${roleI.名称} 和 ${roleJ.名称}，特性匹配度从 ${beforeTotal} 提高到 ${afterTotal}`
-                      );
                       break;
                     }
                   }
                   if (improved) break;
                 }
-                if (improved) break;
-              }
               if (improved) break;
             }
           }
@@ -2462,7 +2551,6 @@
           greedyScore += traitScore.score;
         }
 
-        console.log(`贪心算法解：特性匹配分数 ${greedyScore}`);
 
         // 3. 将贪心解作为基准解
         const greedySolution = {
@@ -2504,11 +2592,6 @@
 
         updateProgress('sorting', '正在整理结果...', { progress: 95 });
         
-        console.log(
-          `找到 ${solutions.length} 个可能的方案，搜索时间：${
-            Date.now() - startTime
-          }ms`
-        );
 
         // 按特性匹配分数排序
         solutions.sort((a, b) => b.totalTraitScore - a.totalTraitScore);
@@ -2545,7 +2628,6 @@
           }
         }
 
-        console.log(`去重后剩余 ${uniqueSolutions.length} 个唯一方案`);
 
         updateProgress('complete', '计算完成！', { 
           progress: 100,
@@ -2563,6 +2645,62 @@
         const selectedDemands = getSelectedDemands();
         const selectedDemandIndicesOrdered = getSelectedDemandIndicesOrdered();
         const resultsContainer = document.getElementById("results-container");
+        
+        // 输出当前勾选的角色和需求
+        const roleNames = selectedRoles.map(r => r.名称).join('、');
+        const demandNames = selectedDemands.map(d => d.物品名称).join('、');
+        console.log(`当前勾选的角色为: ${roleNames}`);
+        console.log(`当前勾选的需求为: ${demandNames}`);
+        
+        // 分析是否存在完美解
+        console.log('=== 完美解可行性分析 ===');
+        const roleByTrait = {};
+        selectedRoles.forEach(role => {
+          (role.特性 || []).forEach(trait => {
+            if (!roleByTrait[trait]) roleByTrait[trait] = [];
+            roleByTrait[trait].push(role);
+          });
+        });
+        
+        selectedDemands.forEach((demand, idx) => {
+          console.log(`${demand.物品名称}:`);
+          console.log(`  职业需求: ${demand.职业需求.join('、')}`);
+          console.log(`  特性需求: ${demand.特性需求.join('、')}`);
+          demand.特性需求.forEach(trait => {
+            const available = roleByTrait[trait] || [];
+            const matching = available.filter(r => demand.职业需求.includes(r.职业));
+            console.log(`    ${trait}: ${available.length}个角色拥有，其中${matching.length}个符合职业要求`);
+            if (matching.length > 0) {
+              console.log(`      符合的角色: ${matching.map(r => `${r.名称}(${r.职业})`).join('、')}`);
+            } else {
+              console.log(`      ⚠️ 没有符合职业要求的角色！`);
+            }
+          });
+        });
+        
+        // 尝试找到一个可能的完美分配方案
+        console.log('\n尝试找到一个可能的完美分配方案:');
+        const testAssignment = Array(selectedDemands.length).fill(null).map(() => []);
+        const testUsed = new Set();
+        
+        // 尝试：怪诞残息使用缇莉娅（辅助，稳扎稳打）
+        const tiliya = selectedRoles.find(r => r.名称 === '缇莉娅');
+        const guaidancanxi = selectedDemands.findIndex(d => d.物品名称 === '怪诞残息');
+        if (tiliya && guaidancanxi >= 0 && !testUsed.has(tiliya.index)) {
+          const demand = selectedDemands[guaidancanxi];
+          if (demand.职业需求.includes(tiliya.职业)) {
+            testAssignment[guaidancanxi].push(tiliya);
+            testUsed.add(tiliya.index);
+            console.log(`  怪诞残息: 使用缇莉娅（辅助，稳扎稳打）`);
+            
+            // 检查是否还需要其他角色
+            const tempScore = calculateDemandTraitScore(testAssignment[guaidancanxi], demand.特性需求);
+            console.log(`    已满足特性: ${tempScore.satisfied.join('、') || '无'}`);
+            console.log(`    缺少特性: ${tempScore.unsatisfied.join('、') || '无'}`);
+          }
+        }
+        
+        console.log('========================');
         // 工具：判断某解在给定需求数组上是否全完美
         function isPerfectSolutionForDemands(solution, demandsArr) {
           if (!solution || !Array.isArray(solution.demandScores)) return false;
@@ -3454,6 +3592,44 @@
             );
           }).length;
 
+          // 输出第一个方案的诊断信息
+          if (solutions.length > 0) {
+            const firstSolution = solutions[0];
+            console.log('=== 方案诊断信息 ===');
+            selectedDemands.forEach((demand, demandIndex) => {
+              const traitScore = firstSolution.demandScores[demandIndex];
+              const assignedRoles = firstSolution.assignment[demandIndex] || [];
+              const satisfied = traitScore.satisfied || [];
+              const unsatisfied = traitScore.unsatisfied || [];
+              const required = demand.特性需求 || [];
+              const isPerfect = satisfied.length === required.length;
+              console.log(`${demand.物品名称}: ${isPerfect ? '✓ 完美' : '✗ 不完美'}`);
+              console.log(`  职业需求: ${demand.职业需求.join('、')}`);
+              console.log(`  分配角色: ${assignedRoles.map(r => r.名称).join('、')}`);
+              if (satisfied.length > 0) {
+                console.log(`  已满足特性: ${satisfied.join('、')}`);
+              }
+              if (unsatisfied.length > 0) {
+                console.log(`  缺少特性: ${unsatisfied.join('、')}`);
+                // 检查是否有其他需求占用了需要的角色
+                selectedDemands.forEach((otherDemand, otherIndex) => {
+                  if (otherIndex === demandIndex) return;
+                  const otherRoles = firstSolution.assignment[otherIndex] || [];
+                  const neededTraits = unsatisfied;
+                  otherRoles.forEach(role => {
+                    if (role.特性 && role.特性.some(t => neededTraits.includes(t))) {
+                      const matchingTraits = role.特性.filter(t => neededTraits.includes(t));
+                      if (matchingTraits.length > 0) {
+                        console.log(`    提示: ${role.名称}(${role.职业}, ${role.特性.join('、')}) 被分配给 ${otherDemand.物品名称}`);
+                      }
+                    }
+                  });
+                });
+              }
+            });
+            console.log('==================');
+          }
+
           // 显示最佳方案
           solutions.forEach((solution, solutionIndex) => {
           const solutionDiv = document.createElement("div");
@@ -3622,7 +3798,6 @@
               document.body.style.backgroundSize = 'cover';
               document.body.style.backgroundRepeat = 'no-repeat';
               document.body.style.backgroundAttachment = 'fixed';
-              console.log('背景图片加载成功:', imgPath);
             };
             testImg.onerror = () => {
               index++;
@@ -3655,7 +3830,6 @@
             const testImg = new Image();
             testImg.onload = () => {
               roleIcon.src = possibleNames[index];
-              console.log('角色图标加载成功:', possibleNames[index]);
             };
             testImg.onerror = () => {
               index++;
