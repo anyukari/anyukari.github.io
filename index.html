@@ -1961,12 +1961,13 @@
 
         // 性能优化：根据需求数量设置搜索限制（适度权衡，避免长时间阻塞）
         // 支持通过 window.FMD_MAX_MS / window.FMD_MAX_SOL 临时覆盖（用于小窗口快速回溯）
+        // 增加限制以确保在角色数量较多时也能找到完美解
         const maxSolutions = (window.FMD_MAX_SOL !== undefined)
           ? window.FMD_MAX_SOL
-          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 80 : 50));
+          : (selectedDemands.length <= 2 ? 100 : (selectedDemands.length <= 4 ? 120 : 80));
         const maxTimeMs = (window.FMD_MAX_MS !== undefined)
           ? window.FMD_MAX_MS
-          : (selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 5000 : 3000));
+          : (selectedDemands.length <= 2 ? 4000 : (selectedDemands.length <= 4 ? 8000 : 5000));
         // 如果找到足够多的完美解，可以提前终止
         const perfectSolutionThreshold = 3;
 
@@ -2528,15 +2529,22 @@
         const greedyResultB = greedyPreassign('scarceTraitsFirst');
         function scoreGreedy(gr) {
           let s = 0;
+          let perfectCount = 0;
           for (let i = 0; i < selectedDemands.length; i++) {
             const demand = selectedDemands[i];
             const assignedRoles = gr.assignment[i];
             const traitScore = calculateDemandTraitScore(assignedRoles, demand.特性需求);
             s += traitScore.score;
+            if (traitScore.satisfied.length === demand.特性需求.length) {
+              perfectCount++;
+            }
           }
-          return s;
+          // 优先选择完美需求数量更多的解，然后选择总分数更高的
+          return perfectCount * 10000 + s;
         }
-        const greedyResult = (scoreGreedy(greedyResultB) > scoreGreedy(greedyResultA)) ? greedyResultB : greedyResultA;
+        const scoreA = scoreGreedy(greedyResultA);
+        const scoreB = scoreGreedy(greedyResultB);
+        const greedyResult = (scoreB > scoreA) ? greedyResultB : greedyResultA;
         updateProgress('greedy', '贪心算法完成，正在计算分数...', { progress: 100 });
 
         // 2. 计算贪心解的特性匹配分数
